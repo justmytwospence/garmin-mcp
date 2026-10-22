@@ -65,7 +65,7 @@ class Transport(Protocol):
 
     display_name: str | None
 
-    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None) -> Response: ...
+    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None, files: Any = None) -> Response: ...
 
     def call(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
         """Invoke a python-garminconnect method by name (for writes whose payloads the library builds)."""
@@ -98,12 +98,14 @@ class GarminConnectTransport:
         except Exception as err:  # noqa: BLE001
             raise self._translate(err) from err
 
-    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None) -> Response:
+    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None, files: Any = None) -> Response:
         kwargs: dict[str, Any] = {}
         if params:
             kwargs["params"] = params
         if json is not None:
             kwargs["json"] = json
+        if files is not None:
+            kwargs["files"] = files
         h = dict(headers or {})
         if binary:
             h["Accept"] = "*/*"
@@ -265,9 +267,10 @@ class GarminClient:
         json: Any = None,
         binary: bool = False,
         headers: dict[str, str] | None = None,
+        files: Any = None,
         priority: Priority = "backfill",
     ) -> Response:
-        return self._exchange(priority, path, method, lambda: self.transport.request(method, path, params=params, json=json, binary=binary, headers=headers))
+        return self._exchange(priority, path, method, lambda: self.transport.request(method, path, params=params, json=json, binary=binary, headers=headers, files=files))
 
     def call(self, method_name: str, *args: Any, priority: Priority = "interactive", **kwargs: Any) -> Any:
         """Run a python-garminconnect method (one request, usually a write) under the same pacing and error rules."""
@@ -362,9 +365,9 @@ class GarminClient:
             return None
         return resp.body or None
 
-    def send(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, priority: Priority = "interactive") -> str | None:
+    def send(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, files: Any = None, priority: Priority = "interactive") -> str | None:
         """POST/PUT/DELETE returning the body text (None when empty)."""
-        resp = self.request(method, path, params=params, json=json, priority=priority)
+        resp = self.request(method, path, params=params, json=json, files=files, priority=priority)
         if resp.status == 204 or not resp.body.strip():
             return None
         return resp.text

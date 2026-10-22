@@ -46,7 +46,7 @@ class FakeTransport:
             raise self.fail_with
         return {"ok": True, "method": method_name}
 
-    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None) -> Response:  # noqa: A002
+    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None, files: Any = None) -> Response:  # noqa: A002
         self.calls.append((method, path, params))
         if self.fail_with is not None:
             raise self.fail_with
@@ -69,8 +69,8 @@ class FakeTransport:
             if self.reloads > 30:
                 return self._dump({"status": "DENIED"})
             return self._dump({"status": "SUBMITTED", "calendarDate": path.rsplit("/", 1)[1]})
-        # datasets: match by path template
-        for ds in BY_NAME.values():
+        # datasets: match by path template (literal paths before templated ones)
+        for ds in sorted(BY_NAME.values(), key=lambda d: "{" in d.path):
             key = self._match(ds, path, params)
             if key is None:
                 continue

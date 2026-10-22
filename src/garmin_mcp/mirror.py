@@ -9,9 +9,11 @@ from. Writes go to Garmin first; what Garmin returns is landed, never an optimis
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -47,10 +49,53 @@ class Provenance:
         return origin
 
 
+def merge_provenance(metas: list[Provenance]) -> Provenance:
+    """One provenance line for a result assembled from several reads."""
+    if not metas:
+        return Provenance("mirror", None, notes=["computed from the local mirror"])
+    if len(metas) == 1:
+        return metas[0]
+    fetched_now = [m for m in metas if m.source == "garmin"]
+    mirrored = [m for m in metas if m.source == "mirror"]
+    stale = next((m.stale for m in metas if m.stale), None)
+    notes = [n for m in metas for n in m.notes]
+    if fetched_now and not mirrored:
+        return Provenance("garmin", None, stale, notes)
+    oldest = min((m.fetched_at for m in mirrored if m.fetched_at), default=None)
+    if fetched_now:
+        notes = [f"{len(fetched_now)} of {len(metas)} parts fetched from Garmin just now; the rest from the mirror" + (f" (oldest {oldest})" if oldest else ""), *notes]
+        return Provenance("garmin", None, stale, notes)
+    return Provenance("mirror", oldest, stale, notes)
+
+
+# Every Cached the mirror hands out during a tool call is noted here, so the tool's
+# provenance line can be assembled without each tool threading metadata around.
+_collector: contextvars.ContextVar[list[Provenance] | None] = contextvars.ContextVar("garmin_mcp_provenance", default=None)
+
+
+def note_provenance(meta: Provenance) -> None:
+    bucket = _collector.get()
+    if bucket is not None:
+        bucket.append(meta)
+
+
+@contextmanager
+def collect_provenance() -> Iterator[list[Provenance]]:
+    bucket: list[Provenance] = []
+    token = _collector.set(bucket)
+    try:
+        yield bucket
+    finally:
+        _collector.reset(token)
+
+
 @dataclass
 class Cached:
     data: Any
     meta: Provenance
+
+    def __post_init__(self) -> None:
+        note_provenance(self.meta)
 
 
 class GarminNotFound(Exception):
@@ -78,6 +123,7 @@ class Mirror:
 
     def _to_cached(self, s: dict, source: str, stale: str | None = None) -> Cached:
         if s["status"] != "ok" or s["body"] is None:
+            note_provenance(Provenance(source, s["checked_at"].isoformat(), stale, notes=["Garmin had nothing for this object"]))
             raise GarminNotFound(f"Nothing on Garmin Connect (as of {s['checked_at'].isoformat()})")
         meta = Provenance(source, s["checked_at"].isoformat(), stale)
         return Cached(json.loads(s["body"]), meta)
@@ -116,6 +162,13 @@ class Mirror:
         if name in ("gear", "gear_defaults") and key == "self":
             key = self.fetch.user_profile_pk("interactive")
         return self.cached(name, key, age, lambda: self.fetch.snapshot(ds, key, priority="interactive"))
+
+    def optional(self, name: str, key: str = "self", max_age: timedelta | None = None, default: Any = None) -> Any:
+        """A snapshot whose absence is a normal answer (an empty gear list, no race prediction): the data or `default`."""
+        try:
+            return self.snapshot(name, key, max_age).data
+        except GarminNotFound:
+            return default
 
     def day(self, name: str, day: str) -> Cached:
         ds = dataset(name)
@@ -173,6 +226,37 @@ class Mirror:
             out.append((s.isoformat(), ds[j].isoformat()))
             i = j + 1
         return out
+
+    def chunk_grid(self, name: str, start: date, end: date) -> list[tuple[str, str]]:
+        """The fixed chunk windows (from the history start) of a whole-range dataset covering [start, end]."""
+        ds = dataset(name)
+        origin = self.engine.history_start() or start
+        if origin > start:
+            origin = start
+        today = self.today()
+        out = []
+        d = origin
+        while d <= min(end, today):
+            e = min(d + timedelta(days=ds.chunk_days - 1), today)
+            if e >= start:
+                out.append((d.isoformat(), e.isoformat()))
+            d = e + timedelta(days=1)
+        return out
+
+    def chunks(self, name: str, start: str, end: str) -> Cached:
+        """Payloads of a whole-range dataset (weigh-ins, blood pressure, wellness metrics) covering [start, end]."""
+        ds = dataset(name)
+        s, e = date.fromisoformat(start), date.fromisoformat(end)
+        out: list[Any] = []
+        metas: list[Provenance] = []
+        for cs, ce in self.chunk_grid(name, s, e):
+            try:
+                c = self.cached(name, f"{cs}_{ce}", self.day_age(ce), lambda cs=cs, ce=ce: self.fetch.range(ds, cs, ce, priority="interactive"))
+            except GarminNotFound:
+                continue
+            out.append(c.data)
+            metas.append(c.meta)
+        return Cached(out, merge_provenance(metas))
 
     def days(self, name: str, start: str, end: str) -> Cached:
         """Per-day payloads of a day dataset for [start, end] (fetching the stale ones), as {date: payload}."""
@@ -246,11 +330,17 @@ class Mirror:
 
     # ------------------------------------------------------------- reports (cached pass-through)
 
-    def report(self, name: str, path: str, params: dict[str, Any] | None, key: str, ttl: timedelta = REPORT_TTL) -> Cached:
-        """A derived Garmin report (progress summary, power curve, ...): cached under (name, key) for ttl."""
+    def report(self, name: str, path: str, params: dict[str, Any] | None, key: str, ttl: timedelta = REPORT_TTL, *, method: str = "GET", json_body: Any = None) -> Cached:
+        """A derived Garmin report (progress summary, power curve, a GraphQL query, ...): cached under (name, key) for ttl."""
 
         def fetcher() -> None:
-            text = self.client.get_text(path, params, priority="interactive")
+            if method == "GET":
+                text = self.client.get_text(path, params, priority="interactive")
+            else:
+                try:
+                    text = self.client.send(method, path, params=params, json=json_body, priority="interactive")
+                except NotFound:
+                    text = None
             with self.db.transaction() as tx:
                 if text is None:
                     from .db.raw import mark_not_found
@@ -263,21 +353,79 @@ class Mirror:
 
     # ------------------------------------------------------------- writes
 
-    def write(self, method: str, path: str, *, params: dict[str, Any] | None = None, json_body: Any = None, refetch: Callable[[], Any] | None = None) -> Any:
+    def write(self, method: str, path: str, *, params: dict[str, Any] | None = None, json_body: Any = None, files: Any = None, refetch: Callable[[], Any] | None = None) -> Any:
         """Send a write to Garmin, then re-fetch what it affected so the mirror reflects Garmin, not our intent."""
-        text = self.client.send(method, path, params=params, json=json_body, priority="interactive")
+        text = self.client.send(method, path, params=params, json=json_body, files=files, priority="interactive")
         result: Any = None
         if text:
             try:
                 result = json.loads(text)
             except json.JSONDecodeError:
                 result = text
+        self._after_write(f"{method} {path}", refetch)
+        return result
+
+    def call(self, method_name: str, *args: Any, refetch: Callable[[], Any] | None = None, **kwargs: Any) -> Any:
+        """A write through a python-garminconnect method (it builds the payload), then the same re-fetch."""
+        result = self.client.call(method_name, *args, priority="interactive", **kwargs)
+        self._after_write(method_name, refetch)
+        return result
+
+    def _after_write(self, what: str, refetch: Callable[[], Any] | None) -> None:
+        note = f"write {what} accepted by Garmin Connect"
         if refetch is not None:
             try:
                 refetch()
+                note += "; the affected objects were re-fetched into the mirror"
             except Exception as err:  # noqa: BLE001
                 log.warning("refetch after write failed: %s", err)
-        return result
+                note += f"; re-fetching the affected objects failed ({str(err)[:120]}), a refresh job was queued"
+        note_provenance(Provenance("garmin", None, notes=[note]))
+
+    def refresh_activity(self, activity_id: str) -> None:
+        """Re-fetch an activity's summary (via the recent listing) and detail after a write."""
+        try:
+            self.engine.run_job("list_recent", "self", 5)
+        except Exception as err:  # noqa: BLE001
+            log.warning("list_recent after write failed: %s", err)
+            self.engine.enqueue("list_recent", "self", 5)
+        self.fetch.activity_sub(dataset("activity"), activity_id, priority="interactive")
+
+    def refresh_snapshot(self, name: str, key: str = "self") -> None:
+        ds = dataset(name)
+        if name in ("gear", "gear_defaults") and key == "self":
+            key = self.fetch.user_profile_pk("interactive")
+        self.fetch.snapshot(ds, key, priority="interactive")
+
+    def refresh_day(self, name: str, day: str) -> None:
+        ds = dataset(name)
+        if ds.kind == "range":
+            self.fetch.range(ds, day, day, priority="interactive")
+        else:
+            self.fetch.day(ds, day, priority="interactive")
+
+    def refresh_range_chunk(self, name: str, day: str) -> None:
+        """Re-fetch the whole-chunk range dataset covering `day` (weigh-ins, blood pressure)."""
+        ds = dataset(name)
+        d = date.fromisoformat(day)
+        start = self.engine.history_start() or d
+        while start + timedelta(days=ds.chunk_days) <= d:
+            start += timedelta(days=ds.chunk_days)
+        end = min(start + timedelta(days=ds.chunk_days - 1), self.today())
+        self.fetch.range(ds, start.isoformat(), end.isoformat(), priority="interactive")
+
+    def enqueue_refresh(self, kind: str, key: str) -> None:
+        self.engine.enqueue(kind, key, 5)
+
+    # ------------------------------------------------------------- typed tables
+
+    def rows(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+        """Rows from the typed tables, JSON-ready (dates and timestamps as ISO strings)."""
+        return [{k: jsonable(v) for k, v in r.items()} for r in self.db.all(sql, params)]
+
+    def row(self, sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
+        rows = self.rows(sql, params)
+        return rows[0] if rows else None
 
     # ------------------------------------------------------------- status
 
@@ -285,4 +433,20 @@ class Mirror:
         return [d.name for d in DATASETS]
 
 
-__all__ = ["Mirror", "Cached", "Provenance", "GarminNotFound", "GarminError", "NotFound"]
+def jsonable(v: Any) -> Any:
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, (list, tuple)):
+        return [jsonable(x) for x in v]
+    if isinstance(v, dict):
+        return {k: jsonable(x) for k, x in v.items()}
+    if isinstance(v, str):
+        return v
+    if hasattr(v, "__float__") and not isinstance(v, (int, float, bool)):
+        return float(v)
+    return v
+
+
+__all__ = ["Mirror", "Cached", "Provenance", "GarminNotFound", "GarminError", "NotFound", "merge_provenance", "collect_provenance", "note_provenance", "jsonable"]
