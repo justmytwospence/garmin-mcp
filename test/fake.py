@@ -40,7 +40,13 @@ class FakeTransport:
     def _dump(self, body: Any) -> Response:
         return Response(200, json.dumps(body).encode(), "application/json")
 
-    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False) -> Response:  # noqa: A002
+    def call(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        self.calls.append(("CALL", method_name, {"args": args, "kwargs": kwargs}))
+        if self.fail_with is not None:
+            raise self.fail_with
+        return {"ok": True, "method": method_name}
+
+    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None) -> Response:  # noqa: A002
         self.calls.append((method, path, params))
         if self.fail_with is not None:
             raise self.fail_with
@@ -76,6 +82,11 @@ class FakeTransport:
                 body = bodies["self"]
             if body is None and ds.kind == "snapshot" and bodies:
                 body = next(iter(bodies.values()))
+            if body is None and ds.name == "activity" and key in self.by_type.get("activity_summary", {}):
+                a = self.by_type["activity_summary"][key]
+                body = {"activityId": a["activityId"], "activityName": a["activityName"], "activityTypeDTO": a["activityType"],
+                        "eventTypeDTO": a["eventType"], "activityUUID": {"uuid": a.get("activityUUID")}, "summaryDTO": {k: v for k, v in a.items() if k not in ("activityType", "eventType")},
+                        "metadataDTO": {"lastUpdateDate": a.get("startTimeGMT")}, "timeZoneUnitDTO": {"timeZone": "America/Los_Angeles"}, "userProfileId": 1}
             if body is None:
                 return Response(204, b"", "")
             return self._dump(body)
@@ -141,4 +152,5 @@ class FlakyTransport(FakeTransport):
 
 class RateLimitedTransport(FakeTransport):
     def request(self, method, path, **kw):
+        self.calls.append((method, path, None))
         raise RateLimited("API Error 429", 429)

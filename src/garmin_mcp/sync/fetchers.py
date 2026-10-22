@@ -98,7 +98,7 @@ class Fetchers:
         elif ds.name == "calendar_events":
             start, end = key.split("_")
         path, params = ds.resolve(self.display_name, key, start, end)
-        text = self.client.get_text(path, params or None, priority=priority)
+        text = self.client.get_text(path, params or None, priority=priority, headers=ds.headers or None)
         return self._land(ds.name, key, text)
 
     def day(self, ds: Dataset, day: str, *, priority: Priority = "backfill") -> FetchResult:

@@ -65,7 +65,11 @@ class Transport(Protocol):
 
     display_name: str | None
 
-    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False) -> Response: ...
+    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None) -> Response: ...
+
+    def call(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        """Invoke a python-garminconnect method by name (for writes whose payloads the library builds)."""
+        ...
 
 
 _STATUS_RE = re.compile(r"API Error (\d{3})")
@@ -88,52 +92,70 @@ class GarminConnectTransport:
             raise AuthError("Login from stored tokens did not load the profile (display name missing)")
         return cls(api)
 
-    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False) -> Response:
-        import garminconnect
+    def call(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return getattr(self.api, method_name)(*args, **kwargs)
+        except Exception as err:  # noqa: BLE001
+            raise self._translate(err) from err
 
+    def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None) -> Response:
         kwargs: dict[str, Any] = {}
         if params:
             kwargs["params"] = params
         if json is not None:
             kwargs["json"] = json
+        h = dict(headers or {})
         if binary:
-            kwargs["headers"] = {"Accept": "*/*"}
+            h["Accept"] = "*/*"
+        if h:
+            kwargs["headers"] = h
         try:
             resp = self.api.client._run_request(method, path, **kwargs)
+        except Exception as err:  # noqa: BLE001
+            raise self._translate(err) from err
+        status = getattr(resp, "status_code", 200)
+        body = getattr(resp, "content", b"") or b""
+        ctype = ""
+        resp_headers = getattr(resp, "headers", None)
+        if resp_headers is not None:
+            try:
+                ctype = resp_headers.get("content-type", "") or ""
+            except Exception:
+                ctype = ""
+        return Response(status, body, ctype)
+
+    @staticmethod
+    def _translate(err: Exception) -> GarminError:
+        import garminconnect
+
+        try:
+            raise err
         except garminconnect.GarminConnectNotFoundError as err:
-            raise NotFound(str(err), 404) from err
+            return NotFound(str(err), 404)
         except garminconnect.GarminConnectTooManyRequestsError as err:
-            raise RateLimited(str(err), 429) from err
+            return RateLimited(str(err), 429)
         except garminconnect.GarminConnectAuthenticationError as err:
-            raise AuthError(str(err), 401) from err
+            return AuthError(str(err), 401)
         except garminconnect.GarminConnectConnectionError as err:
             m = _STATUS_RE.search(str(err))
             status = int(m.group(1)) if m else None
             if status == 404:
-                raise NotFound(str(err), 404) from err
+                return NotFound(str(err), 404)
             if status == 429:
-                raise RateLimited(str(err), 429) from err
+                return RateLimited(str(err), 429)
             if status in (401, 403):
-                raise AuthError(str(err), status) from err
+                return AuthError(str(err), status)
             if status is not None and status >= 500:
-                raise Unavailable(str(err), status) from err
+                return Unavailable(str(err), status)
             if status is None:
-                raise Unavailable(str(err), None) from err
-            raise GarminError(str(err), status) from err
+                return Unavailable(str(err), None)
+            return GarminError(str(err), status)
+        except GarminError as err:
+            return err
+        except (ValueError, TypeError) as err:
+            return GarminError(str(err))
         except Exception as err:  # network and library errors
-            if isinstance(err, (ValueError, TypeError)):
-                raise GarminError(str(err)) from err
-            raise Unavailable(str(err)) from err
-        status = getattr(resp, "status_code", 200)
-        body = getattr(resp, "content", b"") or b""
-        ctype = ""
-        headers = getattr(resp, "headers", None)
-        if headers is not None:
-            try:
-                ctype = headers.get("content-type", "") or ""
-            except Exception:
-                ctype = ""
-        return Response(status, body, ctype)
+            return Unavailable(str(err))
 
 
 @dataclass
@@ -242,8 +264,16 @@ class GarminClient:
         params: dict[str, Any] | None = None,
         json: Any = None,
         binary: bool = False,
+        headers: dict[str, str] | None = None,
         priority: Priority = "backfill",
     ) -> Response:
+        return self._exchange(priority, path, method, lambda: self.transport.request(method, path, params=params, json=json, binary=binary, headers=headers))
+
+    def call(self, method_name: str, *args: Any, priority: Priority = "interactive", **kwargs: Any) -> Any:
+        """Run a python-garminconnect method (one request, usually a write) under the same pacing and error rules."""
+        return self._exchange(priority, f"call:{method_name}", "CALL", lambda: self.transport.call(method_name, *args, **kwargs))
+
+    def _exchange(self, priority: Priority, path: str, method: str, do: Callable[[], Any]) -> Any:
         self.check_available(priority)
         self._acquire(priority)
         try:
@@ -255,8 +285,11 @@ class GarminClient:
                 status: int | None = None
                 size = 0
                 try:
-                    resp = self.transport.request(method, path, params=params, json=json, binary=binary)
-                    status, size = resp.status, len(resp.body)
+                    resp = do()
+                    if isinstance(resp, Response):
+                        status, size = resp.status, len(resp.body)
+                    else:
+                        status = 200
                     return resp
                 except NotFound as err:
                     status = 404
@@ -312,10 +345,10 @@ class GarminClient:
         except Exception:  # never let logging break a request
             log.exception("request log failed")
 
-    def get_text(self, path: str, params: dict[str, Any] | None = None, *, priority: Priority = "backfill") -> str | None:
+    def get_text(self, path: str, params: dict[str, Any] | None = None, *, priority: Priority = "backfill", headers: dict[str, str] | None = None) -> str | None:
         """GET returning the body text; None for 404, 204 and empty bodies."""
         try:
-            resp = self.request("GET", path, params=params, priority=priority)
+            resp = self.request("GET", path, params=params, headers=headers, priority=priority)
         except NotFound:
             return None
         if resp.status == 204 or not resp.body.strip():

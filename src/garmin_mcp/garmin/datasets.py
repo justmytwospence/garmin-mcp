@@ -48,6 +48,7 @@ class Dataset:
     intraday: bool = False
     # element key for list splits (range datasets split by date)
     date_key: str = "calendarDate"
+    headers: dict[str, str] = field(default_factory=dict)
     doc: str = ""
 
     def resolve(self, dn: str, key: str = "self", start: str | None = None, end: str | None = None) -> tuple[str, dict[str, Any]]:
@@ -114,6 +115,10 @@ def split_body_battery(body: Any) -> list[tuple[str, str]]:
 
 
 # ----------------------------------------------------------------- the registry
+
+# goal-service only returns Connect UI goals when the request carries the fetch-metadata
+# header a browser sends on a same-origin XHR (found by Taxuspt/garmin_mcp).
+GOALS_HEADERS = {"Sec-Fetch-Site": "same-origin"}
 
 DATASETS: list[Dataset] = [
     # --- activities (list is handled by the engine; these are per activity)
@@ -192,8 +197,8 @@ DATASETS: list[Dataset] = [
     Dataset("non_completed_badge_challenges", "snapshot", "/badgechallenge-service/badgeChallenge/non-completed", {"start": "1", "limit": "100"}, refresh=WEEK, priority=30),
     Dataset("inprogress_virtual_challenges", "snapshot", "/badgechallenge-service/virtualChallenge/inProgress", {"start": "1", "limit": "100"}, refresh=WEEK, priority=30),
     Dataset("adhoc_challenges", "snapshot", "/adhocchallenge-service/adHocChallenge/historical", {"start": "1", "limit": "100"}, refresh=WEEK, priority=30),
-    Dataset("goals_active", "snapshot", "/goal-service/goal/goals", {"status": "active", "start": "1", "limit": "100", "sortOrder": "asc"}, refresh=DAY, priority=30),
-    Dataset("goals_past", "snapshot", "/goal-service/goal/goals", {"status": "past", "start": "1", "limit": "100", "sortOrder": "asc"}, refresh=WEEK, priority=30),
+    Dataset("goals_active", "snapshot", "/goal-service/goal/goals", {"status": "active", "start": "1", "limit": "100", "sortOrder": "asc"}, refresh=DAY, priority=30, headers=GOALS_HEADERS, doc="Connect UI goals (the fetch-metadata header is required or the list is empty)."),
+    Dataset("goals_past", "snapshot", "/goal-service/goal/goals", {"status": "past", "start": "1", "limit": "100", "sortOrder": "asc"}, refresh=WEEK, priority=30, headers=GOALS_HEADERS),
     Dataset("user_goals", "snapshot", "/goal-service/goal/user", refresh=DAY, priority=30),
     Dataset("workouts", "snapshot", "/workout-service/workouts", {"start": 0, "limit": 500, "myWorkoutsOnly": "true", "sharedWorkoutsOnly": "false"}, refresh=DAY, priority=15),
     Dataset("workout", "snapshot", "/workout-service/workout/{key}", refresh=None, priority=30, doc="Keyed by workout id; refetched when the list's updateDate advances."),
