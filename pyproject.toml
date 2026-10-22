@@ -1,0 +1,33 @@
+[project]
+name = "garmin-mcp"
+version = "0.1.0"
+description = "Garmin Connect MCP server backed by a complete local DuckDB mirror"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2,<3",
+    "garminconnect>=0.3.18",
+    "duckdb>=1.4",
+    "garmin-fit-sdk>=21",
+    "starlette",
+    "uvicorn",
+    "pytz>=2026.5",
+]
+
+[project.scripts]
+garmin-mcp = "garmin_mcp.cli:main"
+garmin-mcp-auth = "garmin_mcp.auth_cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/garmin_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
