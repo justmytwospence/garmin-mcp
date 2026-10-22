@@ -7,6 +7,7 @@ source or mapped without a declaration.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -97,14 +98,80 @@ def consumed_keys(t: Table) -> set[str]:
     return {c.key for c in t.columns if c.key is not None}
 
 
+_EXTRACT = re.compile(r"\b([bd])(->>|->)'([^']+)'")
+_ALIAS = re.compile(r"\)\s+(\w+)(\s+WHERE\s.*)?\s*$", re.DOTALL)
+# Above this many JSON extractions per row, parse each body once into lists instead.
+_WIDE = 24
+
+
+def _parse_once(exprs: str, source: str) -> tuple[str, str]:
+    """Rewrite top-level `b->>'k'` / `b->'k'` (and `d`) extractions into indexes of lists
+    built by one json_extract_string / json_extract call per body.
+
+    DuckDB parses the JSON afresh for every extraction expression and keeps a parser
+    arena per expression, so a 200-column projection of wide Garmin payloads needs
+    hundreds of MB; one multi-path extraction per body keeps that to a few.
+    """
+    found = _EXTRACT.findall(exprs)
+    m = re.search(r"\)\s+(\w+)\s*$", source) or _ALIAS.search(source)
+    if len(found) < _WIDE or not m or not _single_subquery(source[: m.start() + 1]):
+        return exprs, source
+    paths: dict[tuple[str, str], list[str]] = {}
+    for obj, op, key in found:
+        lst = paths.setdefault((obj, op), [])
+        if key not in lst:
+            lst.append(key)
+
+    def repl(match: re.Match[str]) -> str:
+        obj, op, key = match.groups()
+        idx = paths[(obj, op)].index(key) + 1
+        return f"__{obj}{'s' if op == '->>' else 'j'}[{idx}]"
+
+    new_exprs = _EXTRACT.sub(repl, exprs)
+    lists = ", ".join(
+        f"{'json_extract_string' if op == '->>' else 'json_extract'}({obj}, [{', '.join(sql_string('$.' + json_path_key(k)) for k in keys)}]) AS __{obj}{'s' if op == '->>' else 'j'}"
+        for (obj, op), keys in paths.items()
+    )
+    alias = m.group(1)
+    return new_exprs, f"(SELECT *, {lists} FROM {source}) {alias}"
+
+
+def _single_subquery(text: str) -> bool:
+    """Whether text is exactly one parenthesized subquery (so the alias after it names all of the source)."""
+    text = text.strip()
+    if not text.startswith("("):
+        return False
+    depth = 0
+    in_str = False
+    for i, ch in enumerate(text):
+        if in_str:
+            in_str = ch != "'"
+            continue
+        if ch == "'":
+            in_str = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i == len(text) - 1
+    return False
+
+
+def json_path_key(key: str) -> str:
+    return key if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else '"' + key.replace('"', '\\"') + '"'
+
+
 def insert_sql(t: Table, source: str, only: Callable[[Column], bool] | None = None, conflict: str = "OR REPLACE") -> str:
     names, exprs = select_list(t, only)
+    exprs, source = _parse_once(exprs, source)
     return f"INSERT {conflict} INTO {t.name} ({names})\n  SELECT\n    {exprs}\n  FROM {source}"
 
 
 def upsert_sql(t: Table, source: str, only: Callable[[Column], bool]) -> str:
     """Upsert that only overwrites the given columns of an existing row."""
     names, exprs = select_list(t, only)
+    exprs, source = _parse_once(exprs, source)
     updates = ", ".join(
         f'"{c.name}" = excluded."{c.name}"' for c in t.columns if only(c) and c.name not in t.primary_key
     )
