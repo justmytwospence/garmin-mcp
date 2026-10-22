@@ -5,3 +5,6 @@ __pycache__/
 .env
 .pytest_cache/
 dist/
+*.duckdb
+*.duckdb.wal
+.worktrees/

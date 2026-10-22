@@ -1,0 +1,27 @@
+# Self-host garmin-mcp: `docker compose up -d`, then once
+# `docker compose exec garmin-mcp garmin-mcp-auth` to log in (email, password, MFA code);
+# the tokens land in the volume. The MCP endpoint is http://<host>:8000/mcp (Streamable HTTP).
+services:
+  garmin-mcp:
+    image: ghcr.io/justmytwospence/garmin-mcp:0
+    restart: unless-stopped
+    environment:
+      # Hostnames clients use to reach the server, e.g. behind a reverse proxy.
+      # Requests naming any other Host are refused (DNS-rebinding protection).
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
+      # Optional: require this bearer token on /mcp.
+      MCP_BEARER_TOKEN: ${MCP_BEARER_TOKEN:-}
+      # Optional: serve the read-only snapshot at /snapshot.duckdb to this bearer token.
+      SNAPSHOT_TOKEN: ${SNAPSHOT_TOKEN:-}
+      # Optional: where the mirror's history starts (default: the first activity or the account's creation date).
+      GARMIN_HISTORY_START: ${GARMIN_HISTORY_START:-}
+      # Optional: narrow the tool set (all, minimal, health, activities, workouts, training, nutrition).
+      GARMIN_TOOL_PROFILE: ${GARMIN_TOOL_PROFILE:-}
+    # The mirror, its snapshots, the FIT files and the token store.
+    volumes:
+      - garmin-data:/data
+    ports:
+      - "8000:8000"
+
+volumes:
+  garmin-data:

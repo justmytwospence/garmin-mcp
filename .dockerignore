@@ -1,0 +1,10 @@
+.git
+.github
+.venv
+.worktrees
+.pytest_cache
+__pycache__
+state
+test
+.env
+*.duckdb
