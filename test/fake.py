@@ -36,6 +36,7 @@ class FakeTransport:
             self.by_type.setdefault(f["type"], {})[f["key"]] = f["body"]
         self.activities = sorted(self.by_type.get("activity_summary", {}).values(), key=lambda a: a.get("startTimeGMT", ""), reverse=True)
         self.reloads = 0
+        self.writes: list[tuple[str, str, Any]] = []
 
     def _dump(self, body: Any) -> Response:
         return Response(200, json.dumps(body).encode(), "application/json")
@@ -64,6 +65,8 @@ class FakeTransport:
             raise NotFound("no file", 404)
         if path.startswith("/download-service/files/wellness/"):
             return Response(200, wellness_fit(datetime(2026, 1, 2, 0, 0, tzinfo=UTC)), "application/octet-stream")
+        if method in ("PUT", "POST", "DELETE"):
+            return self._write(method, path, json)
         if method == "POST" and path.startswith("/wellness-service/wellness/epoch/request/"):
             self.reloads += 1
             if self.reloads > 30:
@@ -91,6 +94,35 @@ class FakeTransport:
                 return Response(204, b"", "")
             return self._dump(body)
         raise NotFound(f"no fixture for {path}", 404)
+
+    def _write(self, method: str, path: str, body: Any) -> Response:
+        """Writes the tools send; the fake records them and answers like Garmin."""
+        self.writes.append((method, path, body))
+        if path.startswith("/wellness-service/wellness/epoch/request/"):
+            self.reloads += 1
+            if self.reloads > 30:
+                return self._dump({"status": "DENIED"})
+            return self._dump({"status": "SUBMITTED", "calendarDate": path.rsplit("/", 1)[1]})
+        if path == "/workout-service/workout":
+            return self._dump({"workoutId": 999001, "workoutName": (body or {}).get("workoutName")})
+        if path.startswith("/workout-service/schedule/"):
+            return self._dump({"workoutScheduleId": 555001, "workoutId": int(path.rsplit("/", 1)[1]), "calendarDate": (body or {}).get("date")})
+        if path == "/graphql-gateway/graphql":
+            return self._dump({"data": {"workoutScheduleSummariesScalar": []}})
+        if path.startswith("/activity-service/activity/") and method == "PUT":
+            aid = path.split("/")[3]
+            a = self.by_type.get("activity_summary", {}).get(aid)
+            if a is not None and isinstance(body, dict) and body.get("activityName"):
+                a["activityName"] = body["activityName"]
+            return Response(204, b"", "")
+        if path.startswith("/activity-service/activity/") and method == "DELETE":
+            aid = path.split("/")[3]
+            self.by_type.get("activity_summary", {}).pop(aid, None)
+            self.activities = [a for a in self.activities if str(a["activityId"]) != aid]
+            return Response(204, b"", "")
+        if path == "/activity-service/activity" and method == "POST":
+            return self._dump({"activityId": 999002, "activityName": (body or {}).get("activityName")})
+        return Response(204, b"", "")
 
     def _match(self, ds, path: str, params: dict | None) -> str | None:
         tmpl = ds.path.replace("{dn}", self.display_name)
