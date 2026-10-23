@@ -18,8 +18,22 @@ from .tables import table
 SCOPE = "(SELECT object_key FROM _scope)"
 
 
+def scoped_raw(type_: str) -> str:
+    """raw_current restricted to the scoped keys of one type, with the scope on both sides of the join.
+
+    Not the raw_current view: its scope filter reaches only raw_latest, so the join would
+    build a hash table over every stored body of the type (activity details are ~1 MB each).
+    """
+    return (
+        "(SELECT l.object_type, l.object_key, l.status, l.checked_at, p.fetched_at, p.body"
+        f" FROM (SELECT * FROM raw_latest WHERE object_type = '{type_}' AND object_key IN {SCOPE}) l"
+        f" LEFT JOIN (SELECT * FROM raw_payload WHERE object_type = '{type_}' AND object_key IN {SCOPE}) p"
+        " USING (object_type, object_key, content_hash))"
+    )
+
+
 def current(type_: str, alias: str = "r") -> str:
-    return f"(SELECT * FROM raw_current WHERE object_type = '{type_}' AND body IS NOT NULL AND object_key IN {SCOPE}) {alias}"
+    return f"(SELECT * FROM {scoped_raw(type_)} WHERE body IS NOT NULL) {alias}"
 
 
 def insert(t: Table, source: str, only: Callable[[Column], bool] | None = None, conflict: str = "OR REPLACE") -> str:
@@ -124,8 +138,8 @@ ACTIVITY_SOURCE = f"""(
     CASE WHEN s.status = 'not_found' OR d.status = 'not_found'
       THEN greatest(CASE WHEN s.status = 'not_found' THEN s.checked_at END, CASE WHEN d.status = 'not_found' THEN d.checked_at END) END AS deleted_at
   FROM (SELECT l.*, coalesce(l.body, (SELECT p.body FROM raw_payload p WHERE p.object_type = 'activity_summary' AND p.object_key = l.object_key ORDER BY p.fetched_at DESC LIMIT 1)) AS last_body
-        FROM raw_current l WHERE l.object_type = 'activity_summary' AND l.object_key IN {SCOPE}) s
-  FULL JOIN (SELECT * FROM raw_current WHERE object_type = 'activity' AND object_key IN {SCOPE}) d USING (object_key)
+        FROM {scoped_raw('activity_summary')} l) s
+  FULL JOIN {scoped_raw('activity')} d USING (object_key)
 ) src WHERE b IS NOT NULL"""
 
 # When only the detail exists (no list element yet), its summaryDTO feeds the summary columns.
@@ -372,8 +386,8 @@ hrv, hrvr = T("hrv"), T("hrv_reading")
 HRV_SOURCE = f"""(
   SELECT coalesce(d.object_key, s.object_key)::DATE AS calendar_date, coalesce(d.fetched_at, s.fetched_at) AS fetched_at,
          CASE WHEN d.body IS NOT NULL THEN d.body ELSE json_object('hrvSummary', s.body) END AS b
-  FROM (SELECT * FROM raw_current WHERE object_type = 'hrv' AND body IS NOT NULL AND object_key IN {SCOPE}) d
-  FULL JOIN (SELECT * FROM raw_current WHERE object_type = 'hrv_summary' AND body IS NOT NULL AND object_key IN {SCOPE}) s USING (object_key)
+  FROM (SELECT * FROM {scoped_raw('hrv')} WHERE body IS NOT NULL) d
+  FULL JOIN (SELECT * FROM {scoped_raw('hrv_summary')} WHERE body IS NOT NULL) s USING (object_key)
 ) src"""
 for _t in ("hrv", "hrv_summary"):
     add(
