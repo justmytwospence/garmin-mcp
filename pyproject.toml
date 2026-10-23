@@ -1,6 +1,6 @@
 [project]
 name = "garmin-mcp"
-version = "0.1.1"
+version = "0.1.2"
 description = "Garmin Connect MCP server backed by a complete local DuckDB mirror"
 readme = "README.md"
 license = "MIT"
