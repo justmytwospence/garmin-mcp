@@ -252,3 +252,658 @@ analyses, the challenge mappings and the nutrition tools are adapted or vendored
 [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp) (MIT). Garmin Connect access
 through [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) (MIT).
 Garmin's API is unofficial; nothing here is endorsed by Garmin.
+
+## Database schema
+
+Entity-relationship diagrams of the DuckDB mirror. Each table shows its primary-key and join columns plus its total column count; joins are logical (DuckDB foreign keys are not declared). Full column comments: the `garmin_schema` tool or `DESCRIBE` on the snapshot.
+
+### activities
+
+```mermaid
+erDiagram
+  activity {
+    bigint activity_id PK
+    bigint device_id FK
+    bigint course_id FK
+    bigint associated_workout_id FK
+    _ more "215 columns total"
+  }
+  device {
+    bigint device_id PK
+    _ more "23 columns total"
+  }
+  gear {
+    varchar uuid PK
+    _ more "21 columns total"
+  }
+  course {
+    bigint course_id PK
+    _ more "20 columns total"
+  }
+  workout {
+    bigint workout_id PK
+    bigint training_plan_id FK
+    _ more "20 columns total"
+  }
+  raw_file {
+    varchar kind PK
+    varchar key PK
+    _ more "9 columns total"
+  }
+  activity_detail_metric {
+    bigint activity_id PK,FK
+    integer metrics_index PK
+    _ more "10 columns total"
+  }
+  activity_exercise_set {
+    bigint activity_id PK,FK
+    integer idx PK
+    _ more "14 columns total"
+  }
+  activity_gear {
+    bigint activity_id PK,FK
+    varchar gear_uuid PK,FK
+    _ more "9 columns total"
+  }
+  activity_lap {
+    bigint activity_id PK,FK
+    integer lap_index PK
+    _ more "97 columns total"
+  }
+  activity_lap_event {
+    bigint activity_id PK,FK
+    integer idx PK
+    _ more "9 columns total"
+  }
+  activity_polyline {
+    bigint activity_id PK,FK
+    _ more "13 columns total"
+  }
+  activity_split_summary {
+    bigint activity_id PK,FK
+    varchar split_type PK
+    _ more "97 columns total"
+  }
+  activity_time_in_zone {
+    bigint activity_id PK,FK
+    varchar kind PK
+    integer zone_number PK
+    _ more "6 columns total"
+  }
+  activity_typed_split {
+    bigint activity_id PK,FK
+    integer idx PK
+    _ more "98 columns total"
+  }
+  activity_weather {
+    bigint activity_id PK,FK
+    _ more "16 columns total"
+  }
+  personal_record {
+    bigint id PK
+    bigint activity_id FK
+    _ more "14 columns total"
+  }
+  body_battery_event {
+    date calendar_date PK,FK
+    integer idx PK
+    bigint activity_id FK
+    _ more "18 columns total"
+  }
+  activity ||--o{ activity_detail_metric : "activity_id"
+  activity ||--o{ activity_exercise_set : "activity_id"
+  activity ||--o{ activity_gear : "activity_id"
+  activity ||--o{ activity_lap : "activity_id"
+  activity ||--o{ activity_lap_event : "activity_id"
+  activity ||--o{ activity_polyline : "activity_id"
+  activity ||--o{ activity_split_summary : "activity_id"
+  activity ||--o{ activity_time_in_zone : "activity_id"
+  activity ||--o{ activity_typed_split : "activity_id"
+  activity ||--o{ activity_weather : "activity_id"
+  activity ||--o{ body_battery_event : "activity_id"
+  activity ||--o{ personal_record : "activity_id"
+  device ||--o{ activity : "device_id"
+  gear ||--o{ activity_gear : "gear_uuid"
+  course ||--o{ activity : "course_id"
+  workout ||--o{ activity : "associated_workout_id"
+  activity ||--o{ body_battery_event : "activity_id"
+```
+
+### activity FIT
+
+```mermaid
+erDiagram
+  activity {
+    bigint activity_id PK
+    bigint device_id FK
+    bigint course_id FK
+    bigint associated_workout_id FK
+    _ more "215 columns total"
+  }
+  raw_file {
+    varchar kind PK
+    varchar key PK
+    _ more "9 columns total"
+  }
+  fit_device_info {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "24 columns total"
+  }
+  fit_event {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "13 columns total"
+  }
+  fit_file {
+    varchar fit_file_id PK
+    varchar key FK
+    _ more "14 columns total"
+  }
+  fit_hrv {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    integer pos PK
+    _ more "5 columns total"
+  }
+  fit_lap {
+    varchar fit_file_id PK,FK
+    integer message_index PK
+    _ more "124 columns total"
+  }
+  fit_length {
+    varchar fit_file_id PK,FK
+    integer message_index PK
+    _ more "16 columns total"
+  }
+  fit_message {
+    varchar fit_file_id PK,FK
+    varchar mesg PK
+    integer idx PK
+    _ more "6 columns total"
+  }
+  fit_record {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "48 columns total"
+  }
+  fit_session {
+    varchar fit_file_id PK,FK
+    integer message_index PK
+    _ more "124 columns total"
+  }
+  fit_split {
+    varchar fit_file_id PK,FK
+    integer message_index PK
+    _ more "35 columns total"
+  }
+  fit_time_in_zone {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "17 columns total"
+  }
+  fit_file ||--o{ fit_device_info : "fit_file_id"
+  fit_file ||--o{ fit_event : "fit_file_id"
+  fit_file ||--o{ fit_hrv : "fit_file_id"
+  fit_file ||--o{ fit_lap : "fit_file_id"
+  fit_file ||--o{ fit_length : "fit_file_id"
+  fit_file ||--o{ fit_message : "fit_file_id"
+  fit_file ||--o{ fit_record : "fit_file_id"
+  fit_file ||--o{ fit_session : "fit_file_id"
+  fit_file ||--o{ fit_split : "fit_file_id"
+  fit_file ||--o{ fit_time_in_zone : "fit_file_id"
+  activity ||--o{ fit_file : "activity FIT (kind=activity_fit)"
+  raw_file ||--o{ fit_file : "decoded from"
+```
+
+### daily wellness, sleep and training
+
+```mermaid
+erDiagram
+  daily_summary {
+    date calendar_date PK
+    _ more "95 columns total"
+  }
+  all_day_event {
+    date calendar_date PK,FK
+    timestamptz start_timestamp_gmt PK
+    _ more "13 columns total"
+  }
+  body_battery_day {
+    date calendar_date PK,FK
+    _ more "13 columns total"
+  }
+  body_battery_event {
+    date calendar_date PK,FK
+    integer idx PK
+    bigint activity_id FK
+    _ more "18 columns total"
+  }
+  cycling_ability {
+    date calendar_date PK,FK
+    _ more "14 columns total"
+  }
+  daily_summary_v2 {
+    date calendar_date PK,FK
+    _ more "43 columns total"
+  }
+  endurance_score {
+    date calendar_date PK,FK
+    _ more "5 columns total"
+  }
+  fitness_age {
+    date calendar_date PK,FK
+    _ more "7 columns total"
+  }
+  floors_day {
+    date calendar_date PK,FK
+    _ more "8 columns total"
+  }
+  heart_rate_day {
+    date calendar_date PK,FK
+    _ more "13 columns total"
+  }
+  hill_score {
+    date calendar_date PK,FK
+    _ more "12 columns total"
+  }
+  hrv {
+    date calendar_date PK,FK
+    _ more "22 columns total"
+  }
+  hydration {
+    date calendar_date PK,FK
+    _ more "9 columns total"
+  }
+  intensity_minutes_day {
+    date calendar_date PK,FK
+    _ more "18 columns total"
+  }
+  lifestyle_logging {
+    date calendar_date PK,FK
+    _ more "4 columns total"
+  }
+  max_metrics {
+    date calendar_date PK,FK
+    _ more "16 columns total"
+  }
+  nap {
+    date calendar_date PK,FK
+    timestamptz nap_start_timestamp_gmt PK
+    _ more "13 columns total"
+  }
+  race_prediction {
+    timestamptz fetched_at PK
+    date calendar_date FK
+    _ more "6 columns total"
+  }
+  respiration_day {
+    date calendar_date PK,FK
+    _ more "25 columns total"
+  }
+  running_tolerance {
+    date calendar_date PK,FK
+    _ more "3 columns total"
+  }
+  sleep {
+    date calendar_date PK,FK
+    _ more "61 columns total"
+  }
+  sleep_stats {
+    date calendar_date PK,FK
+    _ more "22 columns total"
+  }
+  spo2_day {
+    date calendar_date PK,FK
+    _ more "27 columns total"
+  }
+  steps_daily {
+    date calendar_date PK,FK
+    _ more "5 columns total"
+  }
+  steps_interval {
+    date calendar_date PK,FK
+    timestamptz start_gmt PK
+    _ more "8 columns total"
+  }
+  stress_day {
+    date calendar_date PK,FK
+    _ more "14 columns total"
+  }
+  training_readiness {
+    date calendar_date PK,FK
+    timestamptz timestamp PK
+    _ more "30 columns total"
+  }
+  training_status {
+    date calendar_date PK,FK
+    _ more "17 columns total"
+  }
+  weigh_in {
+    bigint sample_pk PK
+    date calendar_date FK
+    _ more "17 columns total"
+  }
+  wellness_metric {
+    varchar metric PK
+    date calendar_date PK,FK
+    _ more "4 columns total"
+  }
+  heart_rate_sample {
+    date calendar_date PK,FK
+    timestamptz timestamp_gmt PK
+    _ more "4 columns total"
+  }
+  stress_sample {
+    date calendar_date PK,FK
+    timestamptz timestamp_gmt PK
+    _ more "7 columns total"
+  }
+  body_battery_sample {
+    date calendar_date PK,FK
+    timestamptz timestamp_gmt PK
+    _ more "4 columns total"
+  }
+  respiration_sample {
+    date calendar_date PK,FK
+    timestamptz timestamp_gmt PK
+    _ more "4 columns total"
+  }
+  floors_interval {
+    date calendar_date PK,FK
+    timestamptz start_time_gmt PK
+    _ more "6 columns total"
+  }
+  hrv_reading {
+    date calendar_date PK,FK
+    timestamptz reading_time_gmt PK
+    _ more "5 columns total"
+  }
+  sleep_level {
+    date calendar_date PK,FK
+    timestamptz start_gmt PK
+    _ more "5 columns total"
+  }
+  sleep_movement {
+    date calendar_date PK,FK
+    timestamptz start_gmt PK
+    _ more "5 columns total"
+  }
+  sleep_sample {
+    date calendar_date PK,FK
+    varchar series PK
+    timestamptz timestamp_gmt PK
+    _ more "5 columns total"
+  }
+  reload_request {
+    date calendar_date PK,FK
+    timestamptz requested_at PK
+    _ more "5 columns total"
+  }
+  heart_rate_day ||--o{ heart_rate_sample : "calendar_date"
+  stress_day ||--o{ stress_sample : "calendar_date"
+  body_battery_day ||--o{ body_battery_sample : "calendar_date"
+  respiration_day ||--o{ respiration_sample : "calendar_date"
+  floors_day ||--o{ floors_interval : "calendar_date"
+  hrv ||--o{ hrv_reading : "calendar_date"
+  sleep ||--o{ sleep_level : "calendar_date"
+  sleep ||--o{ sleep_movement : "calendar_date"
+  sleep ||--o{ sleep_sample : "calendar_date"
+  daily_summary ||--o{ reload_request : "archive reload"
+  daily_summary ||--o{ hrv : "same day"
+  daily_summary ||--o{ lifestyle_logging : "same day"
+  daily_summary ||--o{ body_battery_event : "same day"
+  daily_summary ||--o{ cycling_ability : "same day"
+  daily_summary ||--o{ endurance_score : "same day"
+  daily_summary ||--o{ training_readiness : "same day"
+  daily_summary ||--o{ nap : "same day"
+  daily_summary ||--o{ race_prediction : "same day"
+  daily_summary ||--o{ steps_daily : "same day"
+  daily_summary ||--o{ hill_score : "same day"
+  daily_summary ||--o{ weigh_in : "same day"
+  daily_summary ||--o{ sleep_stats : "same day"
+  daily_summary ||--o{ body_battery_day : "same day"
+  daily_summary ||--o{ max_metrics : "same day"
+  daily_summary ||--o{ daily_summary_v2 : "same day"
+  daily_summary ||--o{ sleep : "same day"
+  daily_summary ||--o{ training_status : "same day"
+  daily_summary ||--o{ fitness_age : "same day"
+  daily_summary ||--o{ respiration_day : "same day"
+  daily_summary ||--o{ stress_day : "same day"
+  daily_summary ||--o{ wellness_metric : "same day"
+  daily_summary ||--o{ heart_rate_day : "same day"
+  daily_summary ||--o{ spo2_day : "same day"
+  daily_summary ||--o{ intensity_minutes_day : "same day"
+  daily_summary ||--o{ hydration : "same day"
+  daily_summary ||--o{ floors_day : "same day"
+  daily_summary ||--o{ all_day_event : "same day"
+  daily_summary ||--o{ steps_interval : "same day"
+  daily_summary ||--o{ running_tolerance : "same day"
+```
+
+### wellness FIT
+
+```mermaid
+erDiagram
+  daily_summary {
+    date calendar_date PK
+    _ more "95 columns total"
+  }
+  raw_file {
+    varchar kind PK
+    varchar key PK
+    _ more "9 columns total"
+  }
+  fit_file {
+    varchar fit_file_id PK
+    varchar key FK
+    _ more "14 columns total"
+  }
+  fit_hrv_status_summary {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "12 columns total"
+  }
+  fit_hrv_value {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "6 columns total"
+  }
+  fit_monitoring {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "23 columns total"
+  }
+  fit_monitoring_hr {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "7 columns total"
+  }
+  fit_monitoring_info {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "10 columns total"
+  }
+  fit_nap_event {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "12 columns total"
+  }
+  fit_respiration_rate {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "6 columns total"
+  }
+  fit_sleep_assessment {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "18 columns total"
+  }
+  fit_sleep_level {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "6 columns total"
+  }
+  fit_spo2 {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "8 columns total"
+  }
+  fit_stress_level {
+    varchar fit_file_id PK,FK
+    integer idx PK
+    _ more "6 columns total"
+  }
+  fit_file ||--o{ fit_hrv_status_summary : "fit_file_id"
+  fit_file ||--o{ fit_hrv_value : "fit_file_id"
+  fit_file ||--o{ fit_monitoring : "fit_file_id"
+  fit_file ||--o{ fit_monitoring_hr : "fit_file_id"
+  fit_file ||--o{ fit_monitoring_info : "fit_file_id"
+  fit_file ||--o{ fit_nap_event : "fit_file_id"
+  fit_file ||--o{ fit_respiration_rate : "fit_file_id"
+  fit_file ||--o{ fit_sleep_assessment : "fit_file_id"
+  fit_file ||--o{ fit_sleep_level : "fit_file_id"
+  fit_file ||--o{ fit_spo2 : "fit_file_id"
+  fit_file ||--o{ fit_stress_level : "fit_file_id"
+  raw_file ||--o{ fit_file : "decoded from"
+  daily_summary ||--o{ fit_file : "wellness FIT (kind=wellness_fit)"
+```
+
+### account, devices and planning
+
+```mermaid
+erDiagram
+  user_profile {
+    bigint user_profile_pk PK
+    _ more "25 columns total"
+  }
+  user_settings {
+    bigint id PK
+    _ more "30 columns total"
+  }
+  device {
+    bigint device_id PK
+    _ more "23 columns total"
+  }
+  device_settings {
+    bigint device_id PK,FK
+    _ more "13 columns total"
+  }
+  device_last_used {
+    bigint user_device_id PK
+    _ more "9 columns total"
+  }
+  sensor {
+    bigint serial_number PK
+    varchar sensor_type PK
+    _ more "15 columns total"
+  }
+  heart_rate_zones {
+    varchar sport PK
+    _ more "13 columns total"
+  }
+  power_zones {
+    varchar sport PK
+    _ more "11 columns total"
+  }
+  gear {
+    varchar uuid PK
+    _ more "21 columns total"
+  }
+  goal {
+    varchar kind PK
+    bigint goal_pk PK
+    _ more "14 columns total"
+  }
+  badge {
+    bigint badge_id PK
+    _ more "22 columns total"
+  }
+  challenge {
+    varchar kind PK
+    varchar uuid PK
+    _ more "14 columns total"
+  }
+  workout {
+    bigint workout_id PK
+    bigint training_plan_id FK
+    _ more "20 columns total"
+  }
+  training_plan {
+    bigint training_plan_id PK
+    _ more "8 columns total"
+  }
+  calendar_item {
+    varchar month PK
+    integer idx PK
+    bigint workout_id FK
+    bigint training_plan_id FK
+    _ more "16 columns total"
+  }
+  calendar_event {
+    bigint id PK
+    _ more "7 columns total"
+  }
+  course {
+    bigint course_id PK
+    _ more "20 columns total"
+  }
+  blood_pressure {
+    bigint version PK
+    _ more "12 columns total"
+  }
+  snapshot {
+    varchar kind PK
+    _ more "3 columns total"
+  }
+  device ||--o{ device_settings : "device_id"
+  workout ||--o{ calendar_item : "workout_id"
+  training_plan ||--o{ workout : "training_plan_id"
+  training_plan ||--o{ calendar_item : "training_plan_id"
+```
+
+### raw store and sync
+
+```mermaid
+erDiagram
+  raw_payload {
+    varchar object_type PK
+    varchar object_key PK
+    varchar content_hash PK
+    _ more "5 columns total"
+  }
+  raw_latest {
+    varchar object_type PK
+    varchar object_key PK
+    varchar content_hash FK
+    _ more "6 columns total"
+  }
+  raw_file {
+    varchar kind PK
+    varchar key PK
+    _ more "9 columns total"
+  }
+  reload_request {
+    date calendar_date PK,FK
+    timestamptz requested_at PK
+    _ more "5 columns total"
+  }
+  sync_job {
+    varchar kind PK
+    varchar key PK
+    _ more "8 columns total"
+  }
+  sync_log {
+    varchar kind FK
+    _ more "5 columns total"
+  }
+  sync_state {
+    varchar name PK
+    _ more "3 columns total"
+  }
+  request_log {
+    _ more "7 columns total"
+  }
+  raw_payload ||--o{ raw_latest : "current version"
+  sync_job ||--o{ sync_log : "outcome of"
+```
