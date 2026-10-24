@@ -8,3 +8,5 @@ dist/
 *.duckdb
 *.duckdb.wal
 .worktrees/
+backups/
+site/

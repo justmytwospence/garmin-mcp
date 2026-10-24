@@ -1,0 +1,17 @@
+# The snapshot of the mirror, opened read-only. The path is a DuckDB DSN: the compose
+# service creates /var/lib/grafana/garmin/garmin.duckdb (and the same name with the DSN
+# suffix) as symlinks to /data/snapshot/garmin.duckdb on the read-only data volume, so the
+# datasource plugin can both parse the DSN and watch the file. readOnly is honoured by
+# plugin 0.4.6 and later, which also reopen the file when the server replaces the snapshot.
+apiVersion: 1
+datasources:
+  - name: Garmin
+    uid: garmin
+    type: motherduck-duckdb-datasource
+    access: proxy
+    isDefault: true
+    editable: false
+    jsonData:
+      path: /var/lib/grafana/garmin/garmin.duckdb?access_mode=read_only
+      readOnly: true
+      maxOpenConns: 4

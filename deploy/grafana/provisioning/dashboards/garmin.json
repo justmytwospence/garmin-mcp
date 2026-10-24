@@ -1,0 +1,1260 @@
+{
+  "uid": "garmin-mcp",
+  "title": "Garmin",
+  "tags": [
+    "garmin",
+    "garmin-mcp"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1h",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "15m",
+      "1h",
+      "6h",
+      "1d"
+    ]
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "garmin-mcp documentation",
+      "type": "link",
+      "url": "https://justmytwospence.github.io/garmin-mcp/",
+      "targetBlank": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Recovery",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Resting heart rate",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time, resting_heart_rate AS \"resting HR\", last_seven_days_avg_resting_heart_rate AS \"7-day average\"\nFROM daily_summary WHERE $__timeFilter(calendar_date::TIMESTAMP) AND resting_heart_rate IS NOT NULL ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "bpm"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "HRV (overnight average)",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time, last_night_avg AS \"last night\", weekly_avg AS \"weekly average\", baseline_balanced_low AS \"balanced low\", baseline_balanced_upper AS \"balanced high\"\nFROM hrv WHERE $__timeFilter(calendar_date::TIMESTAMP) AND last_night_avg IS NOT NULL ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "ms"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "balanced.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Sleep score",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time, sleep_score AS \"sleep score\" FROM sleep WHERE $__timeFilter(calendar_date::TIMESTAMP) AND sleep_score IS NOT NULL ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Sleep stages",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time, deep_sleep_seconds / 3600.0 AS deep, light_sleep_seconds / 3600.0 AS light, rem_sleep_seconds / 3600.0 AS rem, awake_sleep_seconds / 3600.0 AS awake\nFROM sleep WHERE $__timeFilter(calendar_date::TIMESTAMP) AND sleep_time_seconds IS NOT NULL ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "unit": "h"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "deep"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "light"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rem"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "awake"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Body Battery",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time, body_battery_highest_value AS \"highest\", body_battery_lowest_value AS \"lowest\", body_battery_at_wake_time AS \"at wake\"\nFROM daily_summary WHERE $__timeFilter(calendar_date::TIMESTAMP) AND body_battery_highest_value IS NOT NULL ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Stress",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time, average_stress_level AS \"average\", max_stress_level AS \"max\"\nFROM daily_summary WHERE $__timeFilter(calendar_date::TIMESTAMP) AND average_stress_level IS NOT NULL AND average_stress_level >= 0 ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Activity and training",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Steps",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time, total_steps AS steps FROM daily_summary WHERE $__timeFilter(calendar_date::TIMESTAMP) AND total_steps IS NOT NULL ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Training load",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time,\n  TRY_CAST(acute_training_load->>'dailyTrainingLoadAcute' AS DOUBLE) AS \"acute load\",\n  TRY_CAST(acute_training_load->>'dailyTrainingLoadChronic' AS DOUBLE) AS \"chronic load\",\n  TRY_CAST(acute_training_load->>'minTrainingLoadChronic' AS DOUBLE) AS \"optimal low\",\n  TRY_CAST(acute_training_load->>'maxTrainingLoadChronic' AS DOUBLE) AS \"optimal high\"\nFROM training_status WHERE $__timeFilter(calendar_date::TIMESTAMP) AND acute_training_load IS NOT NULL ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "optimal.*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Training readiness",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time, max(score) AS \"readiness\" FROM training_readiness WHERE $__timeFilter(calendar_date::TIMESTAMP) AND score IS NOT NULL GROUP BY 1 ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 75
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "VO2 max",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT calendar_date::TIMESTAMP AS time, vo2max_precise AS \"running\", vo2max_cycling_precise AS \"cycling\"\nFROM max_metrics WHERE $__timeFilter(calendar_date::TIMESTAMP) AND (vo2max_precise IS NOT NULL OR vo2max_cycling_precise IS NOT NULL) ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Weekly activity volume (hours by type)",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT date_trunc('week', start_time_local)::TIMESTAMP AS time, activity_type, sum(duration) / 3600.0 AS hours\nFROM activity WHERE deleted_at IS NULL AND $__timeFilter(start_time_local) GROUP BY 1, 2 ORDER BY 1, 2",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "unit": "h"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "description": "Moving time per ISO week, stacked by activity type."
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Sync health",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Snapshot age",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT max(checked_at)::TIMESTAMP AS \"last fetch\" FROM raw_latest",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "description": "When the server last fetched anything from Garmin, as of this snapshot."
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Queue",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 51,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT count(*) AS queued FROM sync_job",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1000
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "description": "Jobs waiting (large during the initial backfill, near zero afterwards)."
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Errors (24 h)",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 51,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT count(*) AS errors FROM sync_log WHERE outcome IN ('error', 'auth_error') AND logged_at > now() - INTERVAL 1 DAY",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Rate limits (24 h)",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 51,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT count(*) AS rate_limited FROM sync_log WHERE outcome = 'rate_limited' AND logged_at > now() - INTERVAL 1 DAY",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Activities with FIT",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 51,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT count(*) FILTER (WHERE status = 'ok') AS with_fit FROM raw_latest WHERE object_type = 'activity_fit'",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Days with wellness FIT",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 51,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT count(*) FILTER (WHERE status = 'ok') AS days FROM raw_latest WHERE object_type = 'wellness_fit'",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Garmin requests per day",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT date_trunc('day', observed_at)::TIMESTAMP AS time, count(*) FILTER (WHERE status < 400) AS ok, count(*) FILTER (WHERE status >= 400) AS failed\nFROM request_log WHERE $__timeFilter(observed_at) GROUP BY 1 ORDER BY 1",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "table",
+      "title": "Recent sync errors",
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "garmin"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "garmin"
+          },
+          "refId": "A",
+          "rawSql": "SELECT logged_at, kind, key, left(detail, 160) AS detail FROM sync_log WHERE outcome IN ('error', 'auth_error') ORDER BY logged_at DESC LIMIT 20",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    }
+  ]
+}

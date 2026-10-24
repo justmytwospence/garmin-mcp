@@ -1,27 +1,173 @@
-# Self-host garmin-mcp: `docker compose up -d`, then once
-# `docker compose exec garmin-mcp garmin-mcp-auth` to log in (email, password, MFA code);
-# the tokens land in the volume. The MCP endpoint is http://<host>:8000/mcp (Streamable HTTP).
+# garmin-mcp: an MCP server over a complete local DuckDB mirror of one Garmin Connect account.
+#
+#   cp .env.example .env                                   # set MCP_BEARER_TOKEN at least
+#   docker compose up -d                                   # the server alone
+#   docker compose run --rm garmin-mcp garmin-mcp-auth     # once: email, password, MFA code
+#
+# Optional, each self-contained (docs/extras.md):
+#   --profile oauth       OAuth 2.1 in front of /mcp for any OIDC provider (agentgateway)
+#   --profile grafana     Grafana with the DuckDB datasource and a provisioned dashboard
+#   --profile notebooks   a marimo notebook app over the snapshot
+#   --profile backup      nightly archives of the tokens, FIT files and snapshot in ./backups
+#   e.g. docker compose --profile grafana --profile backup up -d
+#
+# Layout of the garmin-data volume (/data): garmin.duckdb (the live mirror, one process
+# only), snapshot/garmin.duckdb (read-only copy for everything else), fit/ (original FIT
+# files), tokens/ (garmin_tokens.json). Back up fit/, tokens/ and snapshot/, never the live file.
+
 services:
+
   garmin-mcp:
-    image: ghcr.io/justmytwospence/garmin-mcp:0
+    image: ghcr.io/justmytwospence/garmin-mcp:${GARMIN_MCP_VERSION:-1}
     restart: unless-stopped
     environment:
-      # Hostnames clients use to reach the server, e.g. behind a reverse proxy.
-      # Requests naming any other Host are refused (DNS-rebinding protection).
-      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
-      # Optional: require this bearer token on /mcp.
-      MCP_BEARER_TOKEN: ${MCP_BEARER_TOKEN:-}
-      # Optional: serve the read-only snapshot at /snapshot.duckdb to this bearer token.
+      # Required: the bearer token MCP clients send (openssl rand -hex 32).
+      MCP_BEARER_TOKEN: ${MCP_BEARER_TOKEN:?set MCP_BEARER_TOKEN in .env (openssl rand -hex 32)}
+      # Optional: serve the read-only snapshot at GET /snapshot.duckdb to this bearer token.
       SNAPSHOT_TOKEN: ${SNAPSHOT_TOKEN:-}
-      # Optional: where the mirror's history starts (default: the first activity or the account's creation date).
+      # Hostnames clients may use (behind a reverse proxy); DNS-rebinding protection when set.
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
+      GARMIN_IS_CN: ${GARMIN_IS_CN:-false}
       GARMIN_HISTORY_START: ${GARMIN_HISTORY_START:-}
-      # Optional: narrow the tool set (all, minimal, health, activities, workouts, training, nutrition).
+      GARMIN_SYNC: ${GARMIN_SYNC:-on}
+      # First-login fallback for accounts without MFA only; garmin-mcp-auth is the normal way.
+      GARMIN_EMAIL: ${GARMIN_EMAIL:-}
+      GARMIN_PASSWORD: ${GARMIN_PASSWORD:-}
+      # Tool selection (all tools by default).
       GARMIN_TOOL_PROFILE: ${GARMIN_TOOL_PROFILE:-}
-    # The mirror, its snapshots, the FIT files and the token store.
+      GARMIN_ENABLED_TOOLS: ${GARMIN_ENABLED_TOOLS:-}
+      GARMIN_DISABLED_TOOLS: ${GARMIN_DISABLED_TOOLS:-}
+      GARMIN_MCP_CHARACTER_LIMIT: ${GARMIN_MCP_CHARACTER_LIMIT:-60000}
+      GARMIN_FIT_DOWNLOAD_DIR: ${GARMIN_FIT_DOWNLOAD_DIR:-}
+      # DuckDB sizes itself to 80% of host RAM without a limit; see docs/operations.md.
+      DUCKDB_MEMORY_LIMIT: ${DUCKDB_MEMORY_LIMIT:-512MB}
+      DUCKDB_THREADS: ${DUCKDB_THREADS:-2}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - garmin-data:/data
     ports:
-      - "8000:8000"
+      - "${GARMIN_MCP_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          # Peak RSS is about 100 MB + DUCKDB_MEMORY_LIMIT + 300 MB; raise both together.
+          memory: ${GARMIN_MCP_MEMORY:-1536M}
+    security_opt:
+      - no-new-privileges:true
+
+  # --- profile oauth: OAuth 2.1 resource server in front of /mcp -------------------------
+  # agentgateway validates access tokens from your OIDC provider (Authelia, Authentik,
+  # Keycloak, Pocket ID, ...) and forwards to the server with MCP_BEARER_TOKEN. Put your
+  # own TLS reverse proxy in front of port 3000 at PUBLIC_URL. See docs/authentication.md.
+  oauth:
+    profiles: ["oauth"]
+    image: cr.agentgateway.dev/agentgateway:v1.6.0
+    restart: unless-stopped
+    command: ["-f", "/etc/agentgateway/config.yaml"]
+    depends_on:
+      - garmin-mcp
+    environment:
+      # All three must be set in .env; agentgateway refuses to start with an empty value.
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-garmin-mcp}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      MCP_UPSTREAM: http://garmin-mcp:8000/mcp
+      # Largest JSON-RPC request body accepted (bytes).
+      MCP_BUFFER: ${MCP_BUFFER:-4194304}
+    secrets:
+      - source: mcp-bearer-token
+        target: /run/secrets/backend-token
+    volumes:
+      - ./deploy/oauth/agentgateway.yaml:/etc/agentgateway/config.yaml:ro
+    ports:
+      - "${OAUTH_PORT:-3000}:3000"
+    security_opt:
+      - no-new-privileges:true
+
+  # --- profile grafana: dashboards over the snapshot -----------------------------------
+  # Ubuntu image: the DuckDB datasource plugin (MotherDuck) needs glibc. The plugin is
+  # unsigned, so it is allow-listed. The data volume is mounted read-only; the datasource
+  # opens the snapshot read-only through a DuckDB DSN (the two symlinks let plugin
+  # versions before 0.4.6 both parse the DSN and watch the file).
+  grafana:
+    profiles: ["grafana"]
+    image: grafana/grafana:13.0-ubuntu
+    restart: unless-stopped
+    depends_on:
+      - garmin-mcp
+    entrypoint: ["sh", "-c", "mkdir -p /var/lib/grafana/garmin && ln -sfn /data/snapshot/garmin.duckdb /var/lib/grafana/garmin/garmin.duckdb && ln -sfn /data/snapshot/garmin.duckdb '/var/lib/grafana/garmin/garmin.duckdb?access_mode=read_only' && exec /run.sh"]
+    environment:
+      GF_INSTALL_PLUGINS: "https://github.com/motherduckdb/grafana-duckdb-datasource/releases/download/v${GRAFANA_DUCKDB_PLUGIN_VERSION:-0.4.5}/motherduck-duckdb-datasource-${GRAFANA_DUCKDB_PLUGIN_VERSION:-0.4.5}.zip;motherduck-duckdb-datasource"
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: motherduck-duckdb-datasource
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      # Grafana asks to change the password at the first sign-in when it is still "admin".
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/garmin.json
+    volumes:
+      - garmin-data:/data:ro
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    deploy:
+      resources:
+        limits:
+          memory: ${GRAFANA_MEMORY:-1024M}
+
+  # --- profile notebooks: a marimo app over the snapshot -------------------------------
+  notebooks:
+    profiles: ["notebooks"]
+    build: ./deploy/notebooks
+    image: garmin-mcp-notebooks:local
+    restart: unless-stopped
+    depends_on:
+      - garmin-mcp
+    command: ["marimo", "run", "--headless", "--host", "0.0.0.0", "--port", "2718", "--no-token", "/app/notebooks/garmin.py"]
+    environment:
+      GARMIN_SNAPSHOT: /data/snapshot/garmin.duckdb
+    volumes:
+      - garmin-data:/data:ro
+      - ./deploy/notebooks/garmin.py:/app/notebooks/garmin.py:ro
+    ports:
+      - "${NOTEBOOKS_PORT:-2718}:2718"
+    deploy:
+      resources:
+        limits:
+          memory: ${NOTEBOOKS_MEMORY:-1024M}
+
+  # --- profile backup: archives of tokens, FIT files and the snapshot --------------------
+  # Nightly tar.gz into ./backups (offen/docker-volume-backup; point BACKUP_* at S3, WebDAV,
+  # SSH, ... instead, see its README). The live garmin.duckdb and DuckDB's temp directory
+  # are excluded: the snapshot is the consistent copy. Restore: docs/extras.md.
+  backup:
+    profiles: ["backup"]
+    image: offen/docker-volume-backup:v2.49.1
+    restart: unless-stopped
+    environment:
+      BACKUP_CRON_EXPRESSION: ${BACKUP_CRON:-0 4 * * *}
+      BACKUP_FILENAME: garmin-mcp-%Y-%m-%dT%H-%M-%S.tar.gz
+      BACKUP_PRUNING_PREFIX: garmin-mcp-
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_EXCLUDE_REGEXP: '/backup/garmin-data/(garmin\.duckdb(\.wal)?|duckdb-tmp(/.*)?|snapshot/.*\.tmp)$$'
+      BACKUP_SOURCES: /backup
+    volumes:
+      - garmin-data:/backup/garmin-data:ro
+      - ${BACKUP_DIR:-./backups}:/archive
 
 volumes:
   garmin-data:
+  grafana-data:
+
+secrets:
+  mcp-bearer-token:
+    environment: MCP_BEARER_TOKEN

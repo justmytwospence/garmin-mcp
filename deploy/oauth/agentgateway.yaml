@@ -1,0 +1,43 @@
+# agentgateway as an OAuth 2.1 resource server in front of garmin-mcp (compose profile oauth).
+#
+# It publishes protected-resource metadata at /.well-known/oauth-protected-resource/mcp
+# naming your OpenID Connect provider as the authorization server, accepts only access
+# tokens that provider signed (checked against its JWKS) and that were issued to the
+# registered client, strips them, and forwards to the server with the backend bearer
+# (MCP_BEARER_TOKEN, mounted as /run/secrets/backend-token).
+#
+# Dollar-prefixed names are expanded by agentgateway at load time from the container
+# environment, everywhere in this file, and an unset one is fatal: never write a dollar
+# sign in a comment. Variables (set in .env): OIDC_ISSUER, OIDC_JWKS_URL, OIDC_CLIENT_ID,
+# PUBLIC_URL, MCP_UPSTREAM, MCP_BUFFER.
+gateways:
+  default:
+    port: 3000
+frontendPolicies:
+  http:
+    maxBufferSize: $MCP_BUFFER
+mcp:
+  targets:
+  - name: garmin
+    mcp:
+      host: $MCP_UPSTREAM
+    policies:
+      backendAuth:
+        key:
+          file: /run/secrets/backend-token
+  policies:
+    mcpAuthentication:
+      issuer: $OIDC_ISSUER
+      jwks:
+        url: $OIDC_JWKS_URL
+      clientId: $OIDC_CLIENT_ID
+      resourceMetadata:
+        resource: $PUBLIC_URL/mcp
+        scopesSupported: [openid, profile, offline_access]
+        bearerMethodsSupported: [header]
+    authorization:
+      rules:
+      # Only tokens issued to the registered client. Checked on client_id rather than aud
+      # because some providers (Authelia's device grant, for one) issue tokens with an
+      # empty aud; ID tokens carry no client_id, so they are refused as well.
+      - require: 'jwt.client_id == "$OIDC_CLIENT_ID"'
