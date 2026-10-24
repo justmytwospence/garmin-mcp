@@ -188,7 +188,11 @@ ACTIVITY_SOURCE = f"""(
 _activity_insert = insert(activity, ACTIVITY_SOURCE).replace("FROM (\n  SELECT", "FROM (\n  SELECT", 1)
 _activity_insert = _activity_insert.replace(
     "    s.body AS b, d.body AS d,",
-    "    coalesce(s.body, CASE WHEN d.body IS NULL THEN NULL ELSE json_merge_patch(json_merge_patch(d.body, d.body->'summaryDTO'), "
+    # Fields the user edits come from whichever payload is newer: a write re-fetches the
+    # detail, while the list may still hold the old value (or have been fetched mid-edit).
+    "    coalesce(CASE WHEN s.body IS NOT NULL AND d.body IS NOT NULL AND d.fetched_at > s.fetched_at THEN "
+    "json_merge_patch(s.body, json_object('activityName', d.body->'activityName', 'description', d.body->'description', "
+    "'activityType', d.body->'activityTypeDTO', 'eventType', d.body->'eventTypeDTO')) ELSE s.body END, CASE WHEN d.body IS NULL THEN NULL ELSE json_merge_patch(json_merge_patch(d.body, d.body->'summaryDTO'), "
     "json_object('activityType', d.body->'activityTypeDTO', 'eventType', d.body->'eventTypeDTO', 'activityUUID', d.body->'activityUUID'->>'uuid')) END, s.last_body) AS b, d.body AS d,",
 )
 

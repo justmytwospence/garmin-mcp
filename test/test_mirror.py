@@ -78,6 +78,24 @@ def test_detail_only_activity_gets_summary_columns_from_summary_dto(db, fixtures
     assert row["summary_fetched_at"] is None and row["detail_fetched_at"] is not None
 
 
+def test_a_newer_detail_wins_for_edited_fields(db, fixtures):
+    """A rename re-fetches the detail; a list page fetched before it must not undo the rename."""
+    from datetime import timedelta
+
+    detail = next(f for f in fixtures if f["type"] == "activity")
+    summary = next((f for f in fixtures if f["type"] == "activity_summary" and f["key"] == detail["key"]), None)
+    body = dict(summary["body"]) if summary else {"activityId": int(detail["key"]), "activityName": "x"}
+    t0 = datetime.now(UTC)
+    with db.transaction() as tx:
+        land(tx, "activity_summary", detail["key"], json.dumps(dict(body, activityName="Old name")), t0)
+        land(tx, "activity", detail["key"], json.dumps(dict(detail["body"], activityName="New name")), t0 + timedelta(seconds=5))
+    assert db.one("SELECT activity_name FROM activity")["activity_name"] == "New name"
+    # ... and a newer list page wins again
+    with db.transaction() as tx:
+        land(tx, "activity_summary", detail["key"], json.dumps(dict(body, activityName="Listed name")), t0 + timedelta(seconds=10))
+    assert db.one("SELECT activity_name FROM activity")["activity_name"] == "Listed name"
+
+
 def test_daily_wellness_tables(landed_db):
     assert count(landed_db, "daily_summary") == 2
     assert count(landed_db, "heart_rate_day") == 2
