@@ -306,3 +306,18 @@ def test_tool_error_text_for_auth_failures():
 
     assert "garmin-mcp-auth" in error_text(AuthError("Not authenticated: x"))
     assert error_text(Unavailable("boom")).startswith("Garmin Connect unreachable")
+
+
+def test_requests_before_login_explain_the_state(tmp_path, fake_garmin):
+    from garmin_mcp.garmin.datasets import dataset
+    from garmin_mcp.sync.fetchers import Fetchers
+
+    client, m = manager(str(tmp_path / "none"))
+    with pytest.raises(AuthError) as info:
+        client.display_name
+    assert "login runs once at startup" in str(info.value)
+    m.start()
+    m.wait(5)
+    with pytest.raises(AuthError) as info:
+        Fetchers(None, client, str(tmp_path)).snapshot(dataset("user_settings"))  # type: ignore[arg-type]
+    assert "garmin_tokens.json is missing" in str(info.value) and AUTH_COMMAND in str(info.value)

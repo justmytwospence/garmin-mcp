@@ -228,7 +228,9 @@ class GarminClient:
     def display_name(self) -> str:
         dn = self.transport.display_name
         if not dn:
-            raise AuthError("No display name: not logged in")
+            if self.state.auth_error:
+                raise AuthError(f"Not authenticated: {self.state.auth_error}")
+            raise AuthError("Not logged in yet (the login runs once at startup; try again in a few seconds)")
         return dn
 
     # ------------------------------------------------------------- pacing
