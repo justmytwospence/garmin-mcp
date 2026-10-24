@@ -11,7 +11,7 @@ uv run pytest -q          # about 4 minutes
 uv run mkdocs serve       # the documentation at http://127.0.0.1:8000
 ```
 
-Python 3.12, [uv](https://docs.astral.sh/uv/) for everything. The tests never call Garmin: the mirror tests run on scrubbed real payloads in `test/fixtures/payloads.json`, the engine and server tests against a fake Garmin (`test/fake.py`) that serves those fixtures, and FIT decoding on files synthesised by `test/fitgen.py`. Keep it that way: a test that needs a Garmin account cannot run in CI.
+Python 3.12, [uv](https://docs.astral.sh/uv/) for everything. Dependencies follow a seven-day release cooldown: `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml` resolves only releases at least a week old, `uv.lock` records it, and CI and the Docker build run `uv sync --locked`, which fails on a lockfile resolved under other settings. To take one release early, add it under `[tool.uv.exclude-newer-package]` with that release's upload time as the date, and remove the entry once the release is a week old. The tests never call Garmin: the mirror tests run on scrubbed real payloads in `test/fixtures/payloads.json`, the engine and server tests against a fake Garmin (`test/fake.py`) that serves those fixtures, and FIT decoding on files synthesised by `test/fitgen.py`. Keep it that way: a test that needs a Garmin account cannot run in CI.
 
 ## Layout
 

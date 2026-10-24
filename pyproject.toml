@@ -23,6 +23,13 @@ garmin-mcp-auth = "garmin_mcp.auth_cli:main"
 dev = ["pytest>=8", "httpx"]
 docs = ["mkdocs-material==9.7.7"]
 
+[tool.uv]
+# Release cooldown: resolve only releases at least a week old. uv.lock records it, and
+# `uv sync --locked` (CI and the Docker build) fails when the lockfile was resolved under
+# other settings. To take one release early, add it under [tool.uv.exclude-newer-package]
+# with that release's upload time as the date, and remove the entry once it is a week old.
+exclude-newer = "7 days"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
