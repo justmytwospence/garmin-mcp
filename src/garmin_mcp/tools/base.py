@@ -124,6 +124,8 @@ class Registry:
         self.registered: list[str] = []
         self.skipped: list[str] = []
         self.seen: set[str] = set()
+        # Module each tool came from (for the generated tools reference).
+        self.modules: dict[str, str] = {}
 
     def tool(self, name: str | None = None, *, annotations: ToolAnnotations = READ, description: str | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -135,6 +137,7 @@ class Registry:
             wrapped = self._wrap(fn, tool_name, writes=not bool(annotations.read_only_hint))
             self.server.add_tool(wrapped, name=tool_name, description=description or inspect.getdoc(fn), annotations=annotations, structured_output=False)
             self.registered.append(tool_name)
+            self.modules[tool_name] = fn.__module__
             return fn
 
         return decorator
