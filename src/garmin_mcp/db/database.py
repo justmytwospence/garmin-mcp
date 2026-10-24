@@ -7,11 +7,19 @@ cursor, which MVCC lets run alongside the writer.
 
 File access is locked down once the schema is in place: nothing but the snapshot
 directory is reachable from SQL, so a query cannot read the token file.
+
+A fatal DuckDB error ("Failed to rollback transaction. Cannot continue operation", an
+internal assertion) invalidates the database instance: every later statement fails
+until the process restarts. Every statement, on the writer connection or a cursor,
+reports such an error to ``on_fatal`` before re-raising it; the server installs a
+handler that exits the process non-zero so the container restarts.
 """
 
 from __future__ import annotations
 
+import logging
 import os
+import sys
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -23,7 +31,29 @@ import duckdb
 
 from .schema import MIGRATIONS
 
+log = logging.getLogger("garmin_mcp.db")
+
 Row = dict[str, Any]
+
+# Exit status when DuckDB can no longer be used (EX_SOFTWARE); Docker restarts the container.
+FATAL_EXIT_CODE = 70
+
+
+def is_fatal(err: BaseException) -> bool:
+    """Whether a DuckDB error leaves the database instance unusable."""
+    return isinstance(err, (duckdb.FatalException, duckdb.InternalException))
+
+
+def exit_on_fatal(err: BaseException) -> None:
+    """The server's handler: log and end the process so the supervisor restarts it.
+
+    os._exit, not SystemExit: the error may surface on the sync worker, the snapshot
+    thread or a tool call's worker thread, none of which can stop the process by raising.
+    """
+    log.critical("DuckDB fatal error, the mirror cannot be used until the process restarts: %s. Exiting with status %d.", err, FATAL_EXIT_CODE)
+    logging.shutdown()
+    sys.stderr.flush()
+    os._exit(FATAL_EXIT_CODE)
 
 
 @dataclass
@@ -37,14 +67,23 @@ class DatabaseOptions:
 class Tx:
     """Statements on the writer connection, inside the write lock."""
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, conn: duckdb.DuckDBPyConnection, on_error: Callable[[BaseException], None] | None = None) -> None:
         self.conn = conn
+        self.on_error = on_error
+
+    def execute(self, sql: str, params: Sequence[Any] | None = None) -> duckdb.DuckDBPyConnection:
+        try:
+            return self.conn.execute(sql, list(params) if params is not None else None)
+        except duckdb.Error as err:
+            if self.on_error is not None:
+                self.on_error(err)
+            raise
 
     def run(self, sql: str, params: Sequence[Any] | None = None) -> None:
-        self.conn.execute(sql, list(params) if params is not None else None)
+        self.execute(sql, params)
 
     def all(self, sql: str, params: Sequence[Any] | None = None) -> list[Row]:
-        cur = self.conn.execute(sql, list(params) if params is not None else None)
+        cur = self.execute(sql, params)
         if cur.description is None:
             return []
         names = [d[0] for d in cur.description]
@@ -55,7 +94,7 @@ class Tx:
         return rows[0] if rows else None
 
     def scalar(self, sql: str, params: Sequence[Any] | None = None) -> Any:
-        row = self.conn.execute(sql, list(params) if params is not None else None).fetchone()
+        row = self.execute(sql, params).fetchone()
         return row[0] if row else None
 
 
@@ -64,6 +103,13 @@ class Database:
         self._conn = conn
         self._lock = threading.RLock()
         self.options = options
+        # Called with the error before it propagates, when a statement finds the database unusable.
+        self.on_fatal: Callable[[BaseException], None] | None = None
+
+    def report(self, err: BaseException) -> None:
+        """Report an error raised by a statement outside Tx (a read-only cursor); fatal ones reach on_fatal."""
+        if is_fatal(err) and self.on_fatal is not None:
+            self.on_fatal(err)
 
     @classmethod
     def open(cls, options: DatabaseOptions) -> Database:
@@ -115,12 +161,12 @@ class Database:
     def write(self) -> Iterator[Tx]:
         """Statements on the writer connection, serialized with every other write."""
         with self._lock:
-            yield Tx(self._conn)
+            yield Tx(self._conn, self.report)
 
     @contextmanager
     def transaction(self) -> Iterator[Tx]:
         with self._lock:
-            tx = Tx(self._conn)
+            tx = Tx(self._conn, self.report)
             tx.run("BEGIN TRANSACTION")
             try:
                 yield tx

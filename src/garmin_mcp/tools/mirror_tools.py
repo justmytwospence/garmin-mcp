@@ -77,6 +77,7 @@ class ReadOnlyQuery:
             except duckdb.InterruptException as err:
                 raise ToolFailure(f"Query interrupted after {QUERY_TIMEOUT_S:.0f} s; add filters or LIMIT.") from err
             except duckdb.Error as err:
+                self.mirror.db.report(err)
                 raise ToolFailure(f"Query failed: {err}") from err
             finally:
                 timer.cancel()

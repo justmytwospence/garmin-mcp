@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .db.database import Database, DatabaseOptions
+from .db.database import Database, DatabaseOptions, exit_on_fatal
 from .garmin.auth import LoginManager, is_cn, token_dir
 from .garmin.client import GarminClient, RequestSample
 from .mirror import Mirror
@@ -56,6 +56,8 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
     snapshot_dir = env.get("GARMIN_SNAPSHOT_DIR") or str(Path(data_dir) / "snapshot")
     threads = env.get("DUCKDB_THREADS")
     db = Database.open(DatabaseOptions(db_path, snapshot_dir, env.get("DUCKDB_MEMORY_LIMIT") or None, int(threads) if threads else None))
+    # A fatal DuckDB error leaves the mirror unusable: end the process so the container restarts.
+    db.on_fatal = exit_on_fatal
 
     def record(s: RequestSample) -> None:
         try:
