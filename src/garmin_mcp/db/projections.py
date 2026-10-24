@@ -83,7 +83,7 @@ def delete_scope(t: str, column: str, cast: str = "") -> str:
 
 @dataclass
 class Shape:
-    """For the drift check: SQL yielding JSON objects (column o) and the keys the projection understands (None = all)."""
+    """For the drift check: SQL yielding JSON objects (column o, from the newest payloads of the type) and the keys the projection understands (None = all)."""
 
     objects: str
     known: set[str] | None
@@ -96,13 +96,55 @@ class Projection:
     shapes: list[Shape] = field(default_factory=list)
 
 
-def objects(type_: str, path: str | None = None) -> str:
-    inner = f"SELECT body FROM raw_current WHERE object_type = '{type_}' AND body IS NOT NULL"
+# How many of the newest payloads of a type the drift check parses. New fields show up in
+# new payloads, and parsing every stored body is expensive: DuckDB parses a whole vector of
+# rows at once, outside its memory limit, and a parsed payload is many times its text (all
+# stored activity details or courses need gigabytes). Large payload types get a smaller sample.
+DRIFT_SAMPLE_DEFAULT = 200
+DRIFT_SAMPLE: dict[str, int] = {
+    "activity_details": 25,
+    "course": 25,
+    "activity_typed_splits": 50,
+    "activity_splits": 100,
+    "sleep": 100,
+    "calendar_month": 50,
+}
+
+
+def live_bodies(type_: str, sample: int | None = None) -> str:
+    """The current body of every object of one type (or of the `sample` newest), for whole-type scans.
+
+    raw_payload is filtered by a semi-join on the small raw_latest, so bodies stream through
+    instead of being collected into a join hash table, as the raw_current view's join does.
+    The IN is uncorrelated on purpose: a correlated EXISTS becomes a delim join, which buffers
+    its whole input (bodies included) to find the distinct correlation keys.
+    """
+    limit = f" ORDER BY l.checked_at DESC LIMIT {int(sample)}" if sample else ""
+    return (
+        f"(SELECT p.object_key, p.fetched_at, p.body FROM raw_payload p WHERE p.object_type = '{type_}'"
+        f" AND p.content_hash IN (SELECT l.content_hash FROM raw_latest l WHERE l.object_type = '{type_}' AND l.status = 'ok'{limit}))"
+    )
+
+
+def objects(type_: str, path: str | None = None, *, sample: int | None = None) -> str:
+    """JSON objects (column o) of one type's live payloads, optionally only the `sample` newest.
+
+    No json_type() filter: the optimizer would push it below the sampling semi-join into
+    the table scan, parsing every stored body of the type. TRY_CAST yields NULL (no rows
+    after unnest) for a body that is not an array, and json_keys() is empty for a
+    non-object, so consumers need no guard either.
+    """
+    inner = f"SELECT body FROM {live_bodies(type_, sample)} WHERE body IS NOT NULL"
     if not path:
-        return f"SELECT body AS o FROM ({inner}) WHERE json_type(body) = 'OBJECT'"
+        return f"SELECT body AS o FROM ({inner})"
     if path == "$[*]":
-        return f"SELECT unnest(CAST(body AS JSON[])) AS o FROM ({inner}) WHERE json_type(body) = 'ARRAY'"
-    return f"SELECT unnest(CAST(json_extract(body, '{path}') AS JSON[])) AS o FROM ({inner}) WHERE json_type(json_extract(body, '{path}')) = 'ARRAY'"
+        return f"SELECT unnest(TRY_CAST(body AS JSON[])) AS o FROM ({inner})"
+    return f"SELECT unnest(TRY_CAST(json_extract(body, '{path}') AS JSON[])) AS o FROM ({inner})"
+
+
+def sampled(type_: str, path: str | None = None) -> str:
+    """objects() over the newest payloads only, for the drift check."""
+    return objects(type_, path, sample=DRIFT_SAMPLE.get(type_, DRIFT_SAMPLE_DEFAULT))
 
 
 def known(*tables: Table, extra: Sequence[str] = ()) -> set[str] | None:
@@ -153,21 +195,21 @@ _activity_insert = _activity_insert.replace(
 add(
     "activity_summary",
     [_activity_insert],
-    [Shape(objects("activity_summary"), known(activity))],
+    [Shape(sampled("activity_summary"), known(activity))],
 )
 add(
     "activity",
     [_activity_insert],
     [
         Shape(
-            objects("activity"),
+            sampled("activity"),
             {
                 "activityId", "activityUUID", "activityName", "userProfileId", "isMultiSportParent", "activityTypeDTO",
                 "eventTypeDTO", "accessControlRuleDTO", "timeZoneUnitDTO", "metadataDTO", "summaryDTO", "locationName",
                 "splitSummaries", "connectIQMeasurements", "description",
             },
         ),
-        Shape(f"SELECT json_extract(o, '$.summaryDTO') AS o FROM ({objects('activity')})", known(activity)),
+        Shape(f"SELECT json_extract(o, '$.summaryDTO') AS o FROM ({sampled('activity')})", known(activity)),
     ],
 )
 
@@ -182,9 +224,9 @@ add(
         insert(lap_event, act_children("activity_splits", "r.body->'eventDTOs'")),
     ],
     [
-        Shape(objects("activity_splits"), {"activityId", "lapDTOs", "eventDTOs"}),
-        Shape(objects("activity_splits", "$.lapDTOs"), known(lap)),
-        Shape(objects("activity_splits", "$.eventDTOs"), known(lap_event)),
+        Shape(sampled("activity_splits"), {"activityId", "lapDTOs", "eventDTOs"}),
+        Shape(sampled("activity_splits", "$.lapDTOs"), known(lap)),
+        Shape(sampled("activity_splits", "$.eventDTOs"), known(lap_event)),
     ],
 )
 
@@ -192,18 +234,18 @@ typed_split = T("activity_typed_split")
 add(
     "activity_typed_splits",
     [delete_scope("activity_typed_split", "activity_id", "::BIGINT"), insert(typed_split, act_children("activity_typed_splits", "r.body->'splits'"))],
-    [Shape(objects("activity_typed_splits"), {"activityId", "activityUUID", "splits"}), Shape(objects("activity_typed_splits", "$.splits"), known(typed_split))],
+    [Shape(sampled("activity_typed_splits"), {"activityId", "activityUUID", "splits"}), Shape(sampled("activity_typed_splits", "$.splits"), known(typed_split))],
 )
 
 split_summary = T("activity_split_summary")
 add(
     "activity_split_summaries",
     [delete_scope("activity_split_summary", "activity_id", "::BIGINT"), insert(split_summary, act_children("activity_split_summaries", "r.body->'splitSummaries'"))],
-    [Shape(objects("activity_split_summaries"), {"activityId", "activityUUID", "splitSummaries"}), Shape(objects("activity_split_summaries", "$.splitSummaries"), known(split_summary))],
+    [Shape(sampled("activity_split_summaries"), {"activityId", "activityUUID", "splitSummaries"}), Shape(sampled("activity_split_summaries", "$.splitSummaries"), known(split_summary))],
 )
 
 weather = T("activity_weather")
-add("activity_weather", [insert(weather, act_root("activity_weather"))], [Shape(objects("activity_weather"), known(weather))])
+add("activity_weather", [insert(weather, act_root("activity_weather"))], [Shape(sampled("activity_weather"), known(weather))])
 
 tiz = T("activity_time_in_zone")
 for _kind, _type in (("hr", "activity_hr_zones"), ("power", "activity_power_zones")):
@@ -213,25 +255,25 @@ for _kind, _type in (("hr", "activity_hr_zones"), ("power", "activity_power_zone
             f"DELETE FROM activity_time_in_zone WHERE kind = '{_kind}' AND activity_id IN (SELECT object_key::BIGINT FROM _scope)",
             insert(tiz, act_children(_type, "r.body", f"'{_kind}' AS kind")),
         ],
-        [Shape(objects(_type, "$[*]"), known(tiz))],
+        [Shape(sampled(_type, "$[*]"), known(tiz))],
     )
 
 agear = T("activity_gear")
 add(
     "activity_gear",
     [delete_scope("activity_gear", "activity_id", "::BIGINT"), insert(agear, act_children("activity_gear", "r.body"))],
-    [Shape(objects("activity_gear", "$[*]"), None)],
+    [Shape(sampled("activity_gear", "$[*]"), None)],
 )
 
 exset = T("activity_exercise_set")
 add(
     "activity_exercise_sets",
     [delete_scope("activity_exercise_set", "activity_id", "::BIGINT"), insert(exset, act_children("activity_exercise_sets", "r.body->'exerciseSets'"))],
-    [Shape(objects("activity_exercise_sets"), {"activityId", "exerciseSets"}), Shape(objects("activity_exercise_sets", "$.exerciseSets"), None)],
+    [Shape(sampled("activity_exercise_sets"), {"activityId", "exerciseSets"}), Shape(sampled("activity_exercise_sets", "$.exerciseSets"), None)],
 )
 
 poly = T("activity_polyline")
-add("activity_polyline", [insert(poly, act_root("activity_polyline"))], [Shape(objects("activity_polyline"), known(poly))])
+add("activity_polyline", [insert(poly, act_root("activity_polyline"))], [Shape(sampled("activity_polyline"), known(poly))])
 
 dmetric = T("activity_detail_metric")
 add(
@@ -249,26 +291,26 @@ add(
     ],
     [
         Shape(
-            objects("activity_details"),
+            sampled("activity_details"),
             {"activityId", "measurementCount", "metricsCount", "totalMetricsCount", "metricDescriptors", "activityDetailMetrics", "geoPolylineDTO", "heartRateDTOs", "pendingData", "detailsAvailable"},
         ),
-        Shape(objects("activity_details", "$.metricDescriptors"), known(dmetric)),
+        Shape(sampled("activity_details", "$.metricDescriptors"), known(dmetric)),
     ],
 )
 
 # ---------------------------------------------------------------- daily wellness
 
 ds = T("daily_summary")
-add("user_summary", [insert(ds, day_root("user_summary"))], [Shape(objects("user_summary"), known(ds))])
+add("user_summary", [insert(ds, day_root("user_summary"))], [Shape(sampled("user_summary"), known(ds))])
 
 ds2 = T("daily_summary_v2")
-add("daily_summary_v2", [insert(ds2, day_root("daily_summary_v2"))], [Shape(objects("daily_summary_v2"), known(ds2))])
+add("daily_summary_v2", [insert(ds2, day_root("daily_summary_v2"))], [Shape(sampled("daily_summary_v2"), known(ds2))])
 
 si = T("steps_interval")
 add(
     "steps_chart",
     [delete_scope("steps_interval", "calendar_date", "::DATE"), insert(si, day_children("steps_chart", "r.body"))],
-    [Shape(objects("steps_chart", "$[*]"), known(si))],
+    [Shape(sampled("steps_chart", "$[*]"), known(si))],
 )
 
 hrd, hrs = T("heart_rate_day"), T("heart_rate_sample")
@@ -279,7 +321,7 @@ add(
         delete_scope("heart_rate_sample", "calendar_date", "::DATE"),
         insert(hrs, value_rows("heart_rates", "r.body->'heartRateValues'")),
     ],
-    [Shape(objects("heart_rates"), known(hrd))],
+    [Shape(sampled("heart_rates"), known(hrd))],
 )
 
 sd, ss = T("stress_day"), T("stress_sample")
@@ -297,7 +339,7 @@ STRESS_SAMPLES = f"""(
 add(
     "stress",
     [insert(sd, day_root("stress")), delete_scope("stress_sample", "calendar_date", "::DATE"), insert(ss, STRESS_SAMPLES)],
-    [Shape(objects("stress"), known(sd, extra=["bodyBatteryValuesArray"]))],
+    [Shape(sampled("stress"), known(sd, extra=["bodyBatteryValuesArray"]))],
 )
 
 bbd, bbs = T("body_battery_day"), T("body_battery_sample")
@@ -308,14 +350,14 @@ add(
         delete_scope("body_battery_sample", "calendar_date", "::DATE"),
         insert(bbs, value_rows("body_battery", "r.body->'bodyBatteryValuesArray'")),
     ],
-    [Shape(objects("body_battery"), known(bbd))],
+    [Shape(sampled("body_battery"), known(bbd))],
 )
 
 bbe = T("body_battery_event")
 add(
     "body_battery_events",
     [delete_scope("body_battery_event", "calendar_date", "::DATE"), insert(bbe, day_children("body_battery_events", "r.body"))],
-    [Shape(objects("body_battery_events", "$[*]"), known(bbe))],
+    [Shape(sampled("body_battery_events", "$[*]"), known(bbe))],
 )
 
 rd, rs = T("respiration_day"), T("respiration_sample")
@@ -326,21 +368,21 @@ add(
         delete_scope("respiration_sample", "calendar_date", "::DATE"),
         insert(rs, value_rows("respiration", "r.body->'respirationValuesArray'")),
     ],
-    [Shape(objects("respiration"), known(rd))],
+    [Shape(sampled("respiration"), known(rd))],
 )
 
 spo2 = T("spo2_day")
-add("spo2", [insert(spo2, day_root("spo2"))], [Shape(objects("spo2"), known(spo2))])
+add("spo2", [insert(spo2, day_root("spo2"))], [Shape(sampled("spo2"), known(spo2))])
 
 fd, fi = T("floors_day"), T("floors_interval")
 add(
     "floors",
     [insert(fd, day_root("floors")), delete_scope("floors_interval", "calendar_date", "::DATE"), insert(fi, value_rows("floors", "r.body->'floorValuesArray'"))],
-    [Shape(objects("floors"), known(fd))],
+    [Shape(sampled("floors"), known(fd))],
 )
 
 im = T("intensity_minutes_day")
-add("intensity_minutes", [insert(im, day_root("intensity_minutes"))], [Shape(objects("intensity_minutes"), known(im))])
+add("intensity_minutes", [insert(im, day_root("intensity_minutes"))], [Shape(sampled("intensity_minutes"), known(im))])
 
 sleep, slevel, smove, ssample = T("sleep"), T("sleep_level"), T("sleep_movement"), T("sleep_sample")
 SLEEP_ROOT = f"(SELECT r.object_key::DATE AS calendar_date, r.fetched_at, r.body AS root, r.body->'dailySleepDTO' AS b FROM {current('sleep')} WHERE (r.body->'dailySleepDTO') IS NOT NULL) src"
@@ -369,7 +411,7 @@ add(
     ],
     [
         Shape(
-            objects("sleep"),
+            sampled("sleep"),
             {
                 "dailySleepDTO", "sleepMovement", "remSleepData", "sleepLevels", "sleepRestlessMoments", "restlessMomentsCount",
                 "wellnessEpochRespirationDataDTOList", "wellnessEpochRespirationAveragesList", "respirationVersion",
@@ -377,8 +419,8 @@ add(
                 "avgOvernightHrv", "hrvStatus", "bodyBatteryChange", "restingHeartRate", "wellnessSpO2SleepSummaryDTO",
             },
         ),
-        Shape(f"SELECT json_extract(o, '$.dailySleepDTO') AS o FROM ({objects('sleep')})", known(sleep)),
-        Shape(objects("sleep", "$.sleepLevels"), known(slevel)),
+        Shape(f"SELECT json_extract(o, '$.dailySleepDTO') AS o FROM ({sampled('sleep')})", known(sleep)),
+        Shape(sampled("sleep", "$.sleepLevels"), known(slevel)),
     ],
 )
 
@@ -397,36 +439,36 @@ for _t in ("hrv", "hrv_summary"):
             delete_scope("hrv_reading", "calendar_date", "::DATE"),
             insert(hrvr, day_children("hrv", "r.body->'hrvReadings'")),
         ],
-        [Shape(objects(_t), known(hrv) if _t == "hrv" else {"calendarDate", "weeklyAvg", "lastNightAvg", "lastNight5MinHigh", "baseline", "status", "feedbackPhrase", "createTimeStamp"}), Shape(objects("hrv", "$.hrvReadings"), known(hrvr))] if _t == "hrv" else [Shape(objects(_t), {"calendarDate", "weeklyAvg", "lastNightAvg", "lastNight5MinHigh", "baseline", "status", "feedbackPhrase", "createTimeStamp"})],
+        [Shape(sampled(_t), known(hrv) if _t == "hrv" else {"calendarDate", "weeklyAvg", "lastNightAvg", "lastNight5MinHigh", "baseline", "status", "feedbackPhrase", "createTimeStamp"}), Shape(sampled("hrv", "$.hrvReadings"), known(hrvr))] if _t == "hrv" else [Shape(sampled(_t), {"calendarDate", "weeklyAvg", "lastNightAvg", "lastNight5MinHigh", "baseline", "status", "feedbackPhrase", "createTimeStamp"})],
     )
 
 tr = T("training_readiness")
 add(
     "training_readiness",
     [delete_scope("training_readiness", "calendar_date", "::DATE"), insert(tr, day_children("training_readiness", "r.body"))],
-    [Shape(objects("training_readiness", "$[*]"), known(tr))],
+    [Shape(sampled("training_readiness", "$[*]"), known(tr))],
 )
 
 tstat = T("training_status")
-add("training_status", [insert(tstat, day_root("training_status"))], [Shape(objects("training_status"), known(tstat))])
+add("training_status", [insert(tstat, day_root("training_status"))], [Shape(sampled("training_status"), known(tstat))])
 
 mm = T("max_metrics")
-add("max_metrics", [insert(mm, day_root("max_metrics"))], [Shape(objects("max_metrics"), known(mm))])
+add("max_metrics", [insert(mm, day_root("max_metrics"))], [Shape(sampled("max_metrics"), known(mm))])
 
 es = T("endurance_score")
-add("endurance_score", [insert(es, day_root("endurance_score"))], [Shape(objects("endurance_score"), known(es))])
+add("endurance_score", [insert(es, day_root("endurance_score"))], [Shape(sampled("endurance_score"), known(es))])
 
 hs = T("hill_score")
-add("hill_score", [insert(hs, day_root("hill_score"))], [Shape(objects("hill_score"), known(hs))])
+add("hill_score", [insert(hs, day_root("hill_score"))], [Shape(sampled("hill_score"), known(hs))])
 
 fa = T("fitness_age")
-add("fitness_age", [insert(fa, day_root("fitness_age"))], [Shape(objects("fitness_age"), known(fa))])
+add("fitness_age", [insert(fa, day_root("fitness_age"))], [Shape(sampled("fitness_age"), known(fa))])
 
 sst = T("sleep_stats")
-add("sleep_stats", [insert(sst, day_root("sleep_stats"))], [Shape(objects("sleep_stats"), known(sst))])
+add("sleep_stats", [insert(sst, day_root("sleep_stats"))], [Shape(sampled("sleep_stats"), known(sst))])
 
 sdl = T("steps_daily")
-add("steps_daily", [insert(sdl, day_root("steps_daily"))], [Shape(objects("steps_daily"), known(sdl))])
+add("steps_daily", [insert(sdl, day_root("steps_daily"))], [Shape(sampled("steps_daily"), known(sdl))])
 
 wm = T("wellness_metric")
 add(
@@ -437,30 +479,30 @@ add(
             f"(SELECT r.fetched_at, m.key AS metric, unnest(CAST(m.value AS JSON[])) AS b FROM {current('wellness_metrics')}, json_each(r.body->'allMetrics'->'metricsMap') m) src",
         )
     ],
-    [Shape(objects("wellness_metrics"), {"userProfileId", "statisticsStartDate", "statisticsEndDate", "allMetrics", "groupedMetrics"})],
+    [Shape(sampled("wellness_metrics"), {"userProfileId", "statisticsStartDate", "statisticsEndDate", "allMetrics", "groupedMetrics"})],
 )
 
 hyd = T("hydration")
-add("hydration", [insert(hyd, day_root("hydration"))], [Shape(objects("hydration"), known(hyd))])
+add("hydration", [insert(hyd, day_root("hydration"))], [Shape(sampled("hydration"), known(hyd))])
 
 ade = T("all_day_event")
 add(
     "all_day_events",
     [delete_scope("all_day_event", "calendar_date", "::DATE"), insert(ade, day_children("all_day_events", "r.body"))],
-    [Shape(objects("all_day_events", "$[*]"), known(ade))],
+    [Shape(sampled("all_day_events", "$[*]"), known(ade))],
 )
 
 nap = T("nap")
-add("naps", [delete_scope("nap", "calendar_date", "::DATE"), insert(nap, day_children("naps", "r.body"))], [Shape(objects("naps", "$[*]"), known(nap))])
+add("naps", [delete_scope("nap", "calendar_date", "::DATE"), insert(nap, day_children("naps", "r.body"))], [Shape(sampled("naps", "$[*]"), known(nap))])
 
 ll = T("lifestyle_logging")
-add("lifestyle_logging", [insert(ll, day_root("lifestyle_logging"))], [Shape(objects("lifestyle_logging"), known(ll))])
+add("lifestyle_logging", [insert(ll, day_root("lifestyle_logging"))], [Shape(sampled("lifestyle_logging"), known(ll))])
 
 ca = T("cycling_ability")
-add("cycling_ability", [insert(ca, day_root("cycling_ability"))], [Shape(objects("cycling_ability"), known(ca))])
+add("cycling_ability", [insert(ca, day_root("cycling_ability"))], [Shape(sampled("cycling_ability"), known(ca))])
 
 rt = T("running_tolerance")
-add("running_tolerance", [insert(rt, day_root("running_tolerance"))], [Shape(objects("running_tolerance"), None)])
+add("running_tolerance", [insert(rt, day_root("running_tolerance"))], [Shape(sampled("running_tolerance"), None)])
 
 wi = T("weigh_in")
 add(
@@ -471,7 +513,7 @@ add(
             f"(SELECT r.fetched_at, unnest(CAST(d->'allWeightMetrics' AS JSON[])) AS b FROM {current('weigh_ins')}, unnest(CAST(r.body->'dailyWeightSummaries' AS JSON[])) t(d)) src",
         )
     ],
-    [Shape(objects("weigh_ins"), {"dailyWeightSummaries", "totalAverage", "previousDateWeight", "nextDateWeight"})],
+    [Shape(sampled("weigh_ins"), {"dailyWeightSummaries", "totalAverage", "previousDateWeight", "nextDateWeight"})],
 )
 
 bp = T("blood_pressure")
@@ -483,13 +525,13 @@ add(
             f"(SELECT r.fetched_at, unnest(CAST(d->'measurements' AS JSON[])) AS b FROM {current('blood_pressure')}, unnest(CAST(r.body->'measurementSummaries' AS JSON[])) t(d)) src",
         )
     ],
-    [Shape(objects("blood_pressure"), {"from", "until", "measurementSummaries", "categoryStats"})],
+    [Shape(sampled("blood_pressure"), {"from", "until", "measurementSummaries", "categoryStats"})],
 )
 
 # ---------------------------------------------------------------- profile and settings
 
 us = T("user_settings")
-add("user_settings", ["DELETE FROM user_settings", insert(us, f"(SELECT r.fetched_at, r.body AS b FROM {current('user_settings')}) src")], [Shape(objects("user_settings"), known(us))])
+add("user_settings", ["DELETE FROM user_settings", insert(us, f"(SELECT r.fetched_at, r.body AS b FROM {current('user_settings')}) src")], [Shape(sampled("user_settings"), known(us))])
 
 up = T("user_profile")
 PROFILE_SOURCE = """(
@@ -501,7 +543,7 @@ PROFILE_SOURCE = """(
   LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'privacy_settings' AND body IS NOT NULL) p ON true
 ) src WHERE base IS NOT NULL"""
 for _t in ("userprofile_settings", "user_profile_base", "personal_information", "privacy_settings"):
-    add(_t, ["DELETE FROM user_profile", insert(up, PROFILE_SOURCE)], [Shape(objects(_t), None)])
+    add(_t, ["DELETE FROM user_profile", insert(up, PROFILE_SOURCE)], [Shape(sampled(_t), None)])
 
 dev = T("device")
 _dev_cols = lambda c: c.name not in ("historical",)  # noqa: E731
@@ -514,17 +556,17 @@ for _t, _hist in (("devices", "false"), ("historical_devices", "true")):
             else insert(dev, f"(SELECT r.fetched_at, {_hist} AS historical, unnest(CAST(r.body AS JSON[])) AS b FROM {current(_t)}) src", conflict="OR IGNORE"),
             "UPDATE device SET historical = false WHERE device_id IN (SELECT TRY_CAST(o->>'deviceId' AS BIGINT) FROM (" + objects("devices", "$[*]") + "))",
         ],
-        [Shape(objects(_t, "$[*]"), None)],
+        [Shape(sampled(_t, "$[*]"), None)],
     )
 
 dset = T("device_settings")
-add("device_settings", [insert(dset, f"(SELECT r.fetched_at, r.body AS b FROM {current('device_settings')}) src")], [Shape(objects("device_settings"), None)])
+add("device_settings", [insert(dset, f"(SELECT r.fetched_at, r.body AS b FROM {current('device_settings')}) src")], [Shape(sampled("device_settings"), None)])
 
 dlu = T("device_last_used")
-add("device_last_used", ["DELETE FROM device_last_used", insert(dlu, f"(SELECT r.fetched_at, r.body AS b FROM {current('device_last_used')}) src")], [Shape(objects("device_last_used"), known(dlu))])
+add("device_last_used", ["DELETE FROM device_last_used", insert(dlu, f"(SELECT r.fetched_at, r.body AS b FROM {current('device_last_used')}) src")], [Shape(sampled("device_last_used"), known(dlu))])
 
 sens = T("sensor")
-add("sensors", ["DELETE FROM sensor", insert(sens, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('sensors')}) src")], [Shape(objects("sensors", "$[*]"), known(sens))])
+add("sensors", ["DELETE FROM sensor", insert(sens, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('sensors')}) src")], [Shape(sampled("sensors", "$[*]"), known(sens))])
 
 gear = T("gear")
 GEAR_SOURCE = f"""(
@@ -532,21 +574,21 @@ GEAR_SOURCE = f"""(
   FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM (SELECT * FROM raw_current WHERE object_type = 'gear' AND body IS NOT NULL) r) g
   LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'gear_stats' AND body IS NOT NULL) s ON s.object_key = (g.b->>'uuid')
 ) src"""
-add("gear", ["DELETE FROM gear", insert(gear, GEAR_SOURCE)], [Shape(objects("gear", "$[*]"), None)])
-add("gear_stats", [insert(gear, GEAR_SOURCE)], [Shape(objects("gear_stats"), None)])
+add("gear", ["DELETE FROM gear", insert(gear, GEAR_SOURCE)], [Shape(sampled("gear", "$[*]"), None)])
+add("gear_stats", [insert(gear, GEAR_SOURCE)], [Shape(sampled("gear_stats"), None)])
 
 hrz = T("heart_rate_zones")
-add("heart_rate_zones", ["DELETE FROM heart_rate_zones", insert(hrz, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('heart_rate_zones')}) src")], [Shape(objects("heart_rate_zones", "$[*]"), known(hrz))])
+add("heart_rate_zones", ["DELETE FROM heart_rate_zones", insert(hrz, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('heart_rate_zones')}) src")], [Shape(sampled("heart_rate_zones", "$[*]"), known(hrz))])
 
 pz = T("power_zones")
-add("power_zones", ["DELETE FROM power_zones", insert(pz, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('power_zones')}) src")], [Shape(objects("power_zones", "$[*]"), known(pz))])
+add("power_zones", ["DELETE FROM power_zones", insert(pz, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('power_zones')}) src")], [Shape(sampled("power_zones", "$[*]"), known(pz))])
 
 pr = T("personal_record")
-add("personal_records", ["DELETE FROM personal_record", insert(pr, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('personal_records')}) src")], [Shape(objects("personal_records", "$[*]"), None)])
+add("personal_records", ["DELETE FROM personal_record", insert(pr, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('personal_records')}) src")], [Shape(sampled("personal_records", "$[*]"), None)])
 
 badge = T("badge")
-add("earned_badges", [insert(badge, f"(SELECT r.fetched_at, true AS earned, unnest(CAST(r.body AS JSON[])) AS b FROM {current('earned_badges')}) src")], [Shape(objects("earned_badges", "$[*]"), None)])
-add("available_badges", [insert(badge, f"(SELECT r.fetched_at, false AS earned, unnest(CAST(r.body AS JSON[])) AS b FROM {current('available_badges')}) src", conflict="OR IGNORE")], [Shape(objects("available_badges", "$[*]"), None)])
+add("earned_badges", [insert(badge, f"(SELECT r.fetched_at, true AS earned, unnest(CAST(r.body AS JSON[])) AS b FROM {current('earned_badges')}) src")], [Shape(sampled("earned_badges", "$[*]"), None)])
+add("available_badges", [insert(badge, f"(SELECT r.fetched_at, false AS earned, unnest(CAST(r.body AS JSON[])) AS b FROM {current('available_badges')}) src", conflict="OR IGNORE")], [Shape(sampled("available_badges", "$[*]"), None)])
 
 chal = T("challenge")
 for _t, _kind in (
@@ -559,7 +601,7 @@ for _t, _kind in (
     add(
         _t,
         [f"DELETE FROM challenge WHERE kind = '{_kind}'", insert(chal, f"(SELECT r.fetched_at, '{_kind}' AS kind, unnest(CAST(r.body AS JSON[])) AS b FROM {current(_t)}) src")],
-        [Shape(objects(_t, "$[*]"), None)],
+        [Shape(sampled(_t, "$[*]"), None)],
     )
 
 goal = T("goal")
@@ -567,7 +609,7 @@ for _t, _kind in (("user_goals", "user"), ("goals_active", "active"), ("goals_pa
     add(
         _t,
         [f"DELETE FROM goal WHERE kind = '{_kind}'", insert(goal, f"(SELECT r.fetched_at, '{_kind}' AS kind, unnest(CAST(r.body AS JSON[])) AS b FROM {current(_t)}) src")],
-        [Shape(objects(_t, "$[*]"), None)],
+        [Shape(sampled(_t, "$[*]"), None)],
     )
 
 wk = T("workout")
@@ -576,8 +618,8 @@ WORKOUT_SOURCE = f"""(
   FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM (SELECT * FROM raw_current WHERE object_type = 'workouts' AND body IS NOT NULL) r) w
   LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'workout' AND body IS NOT NULL) d ON d.object_key = (w.b->>'workoutId')
 ) src"""
-add("workouts", ["DELETE FROM workout", insert(wk, WORKOUT_SOURCE)], [Shape(objects("workouts", "$[*]"), None)])
-add("workout", [insert(wk, WORKOUT_SOURCE)], [Shape(objects("workout"), None)])
+add("workouts", ["DELETE FROM workout", insert(wk, WORKOUT_SOURCE)], [Shape(sampled("workouts", "$[*]"), None)])
+add("workout", [insert(wk, WORKOUT_SOURCE)], [Shape(sampled("workout"), None)])
 
 ci = T("calendar_item")
 add(
@@ -586,7 +628,7 @@ add(
         "DELETE FROM calendar_item WHERE month IN (SELECT object_key FROM _scope)",
         insert(ci, children("calendar_month", "r.body->'calendarItems'", "r.object_key AS month")),
     ],
-    [Shape(objects("calendar_month", "$.calendarItems"), None)],
+    [Shape(sampled("calendar_month", "$.calendarItems"), None)],
 )
 
 course = T("course")
@@ -595,20 +637,20 @@ COURSE_SOURCE = f"""(
   FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM (SELECT * FROM raw_current WHERE object_type = 'courses' AND body IS NOT NULL) r) c
   LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'course' AND body IS NOT NULL) d ON d.object_key = (c.b->>'courseId')
 ) src"""
-add("courses", ["DELETE FROM course", insert(course, COURSE_SOURCE)], [Shape(objects("courses", "$[*]"), None)])
-add("course", [insert(course, COURSE_SOURCE)], [Shape(objects("course"), None)])
+add("courses", ["DELETE FROM course", insert(course, COURSE_SOURCE)], [Shape(sampled("courses", "$[*]"), None)])
+add("course", [insert(course, COURSE_SOURCE)], [Shape(sampled("course"), None)])
 
 tp = T("training_plan")
-add("training_plans", ["DELETE FROM training_plan", insert(tp, f"(SELECT r.fetched_at, unnest(CAST(r.body->'trainingPlanList' AS JSON[])) AS b FROM {current('training_plans')}) src")], [Shape(objects("training_plans"), {"trainingPlanList", "searchFilter"})])
+add("training_plans", ["DELETE FROM training_plan", insert(tp, f"(SELECT r.fetched_at, unnest(CAST(r.body->'trainingPlanList' AS JSON[])) AS b FROM {current('training_plans')}) src")], [Shape(sampled("training_plans"), {"trainingPlanList", "searchFilter"})])
 
 ce = T("calendar_event")
-add("calendar_events", ["DELETE FROM calendar_event", insert(ce, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('calendar_events')}) src")], [Shape(objects("calendar_events", "$[*]"), None)])
+add("calendar_events", ["DELETE FROM calendar_event", insert(ce, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('calendar_events')}) src")], [Shape(sampled("calendar_events", "$[*]"), None)])
 
 rp = T("race_prediction")
 add(
     "race_predictions",
     ["DELETE FROM race_prediction", insert(rp, "(SELECT p.fetched_at, p.body AS b FROM raw_payload p WHERE p.object_type = 'race_predictions') src")],
-    [Shape(objects("race_predictions"), known(rp, extra=["userId", "fromCalendarDate", "toCalendarDate"]))],
+    [Shape(sampled("race_predictions"), known(rp, extra=["userId", "fromCalendarDate", "toCalendarDate"]))],
 )
 
 SNAPSHOT_KINDS = [
@@ -618,7 +660,7 @@ SNAPSHOT_KINDS = [
 ]
 snap = T("snapshot")
 for _k in SNAPSHOT_KINDS:
-    add(_k, [insert(snap, f"(SELECT r.object_type, r.fetched_at, r.body FROM {current(_k)}) src")], [Shape(objects(_k), None)])
+    add(_k, [insert(snap, f"(SELECT r.object_type, r.fetched_at, r.body FROM {current(_k)}) src")], [Shape(sampled(_k), None)])
 
 PROJECTION_BY_TYPE = {p.type: p for p in PROJECTIONS}
 
@@ -643,7 +685,11 @@ def rebuild_all(tx: Tx) -> None:
 
 
 def drift(tx: Tx) -> list[dict]:
-    """Keys present in landed payloads that no projection maps: schema drift to look at."""
+    """Keys present in landed payloads that no projection maps: schema drift to look at.
+
+    Looks at the newest payloads of each type (DRIFT_SAMPLE), which is where a field Garmin
+    added shows up first, so the check stays cheap on a mirror of many years.
+    """
     out: list[dict] = []
     seen: set[tuple[str, str]] = set()
     for p in PROJECTIONS:
@@ -651,7 +697,7 @@ def drift(tx: Tx) -> list[dict]:
             if shape.known is None:
                 continue
             rows = tx.all(
-                f"SELECT k, count(*)::INTEGER AS n FROM (SELECT unnest(json_keys(o)) AS k FROM ({shape.objects}) WHERE o IS NOT NULL AND json_type(o) = 'OBJECT') GROUP BY k"
+                f"SELECT k, count(*)::INTEGER AS n FROM (SELECT unnest(json_keys(o)) AS k FROM ({shape.objects}) WHERE o IS NOT NULL) GROUP BY k"
             )
             for r in rows:
                 if r["k"] not in shape.known and (p.type, r["k"]) not in seen:

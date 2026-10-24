@@ -50,3 +50,56 @@ def test_projecting_one_activity_does_not_read_every_stored_detail(fixtures):
         assert db.one("SELECT count(*) AS n FROM activity WHERE activity_id = 19999")["n"] == 1
     finally:
         db.close()
+
+
+def _scans(node: dict) -> list[dict]:
+    out = [node] if node.get("name") in ("SEQ_SCAN", "TABLE_SCAN") else []
+    for child in node.get("children", []):
+        out.extend(_scans(child))
+    return out
+
+
+def test_drift_check_samples_the_newest_payloads_without_parsing_every_body(landed_db):
+    """The drift query must not parse stored bodies in the table scan: a json_type() filter
+    pushed below the sampling semi-join would parse every payload of the type (gigabytes on
+    a mirror of many years). Only the sampled rows reach json_keys()."""
+    from garmin_mcp.db.projections import PROJECTIONS, drift
+
+    checked = 0
+    with landed_db.write() as tx:
+        for p in PROJECTIONS:
+            for shape in p.shapes:
+                if shape.known is None:
+                    continue
+                plan = tx.all(f"EXPLAIN (FORMAT json) SELECT unnest(json_keys(o)) AS k FROM ({shape.objects}) WHERE o IS NOT NULL")[0]["explain_value"]
+                for scan in _scans(json.loads(plan)[0]):
+                    info = json.dumps(scan.get("extra_info", {}))
+                    if "raw_payload" not in info:
+                        continue
+                    assert "json" not in info.lower(), (p.type, info)
+                    assert "LIMIT" not in info  # the sample is a semi-join on raw_latest, not a scan filter
+                    checked += 1
+        assert checked > 50
+        assert drift(tx) == []
+
+
+def test_sync_status_reuses_the_drift_check(landed_db):
+    from garmin_mcp.tools.mirror_tools import DriftCache
+
+    class M:
+        db = landed_db
+
+    calls = []
+    cache = DriftCache(M(), ttl=3600)
+    import garmin_mcp.tools.mirror_tools as mt
+
+    original = mt.drift
+    mt.drift = lambda tx: calls.append(1) or original(tx)
+    try:
+        assert cache.get() == [] and cache.get() == []
+        assert len(calls) == 1
+        cache._at = 0.0
+        cache.get()
+        assert len(calls) == 2
+    finally:
+        mt.drift = original

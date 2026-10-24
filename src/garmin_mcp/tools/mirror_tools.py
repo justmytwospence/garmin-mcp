@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
 import duckdb
@@ -13,6 +14,25 @@ from .base import NoData, READ, Registry, ToolFailure
 
 QUERY_TIMEOUT_S = 30.0
 MAX_ROWS = 5000
+# The drift check parses the newest stored payloads of every type; its answer is reused for an hour.
+DRIFT_TTL_S = 3600.0
+
+
+class DriftCache:
+    def __init__(self, mirror: Mirror, ttl: float = DRIFT_TTL_S) -> None:
+        self.mirror = mirror
+        self.ttl = ttl
+        self._at = 0.0
+        self._value: list[dict] | None = None
+        self._lock = threading.Lock()
+
+    def get(self) -> list[dict]:
+        with self._lock:
+            if self._value is None or time.monotonic() - self._at > self.ttl:
+                with self.mirror.db.write() as tx:
+                    self._value = drift(tx)
+                self._at = time.monotonic()
+            return self._value
 
 _READ_ONLY_TYPES = {"SELECT", "EXPLAIN"}
 
@@ -67,6 +87,7 @@ class ReadOnlyQuery:
 def register(reg: Registry) -> None:
     m = reg.mirror
     query = ReadOnlyQuery(m)
+    drift_cache = DriftCache(m)
 
     @reg.tool(annotations=READ)
     def garmin_query(sql: str, max_rows: int = 200) -> Any:
@@ -128,8 +149,7 @@ def register(reg: Registry) -> None:
         status = m.engine.status()
         status["login"] = login_state(m)
         status["sync_worker"] = "running" if m.engine._running else "stopped"
-        with m.db.write() as tx:
-            status["unmapped_fields"] = drift(tx)
+        status["unmapped_fields"] = drift_cache.get()
         return jsonable(status)
 
 
