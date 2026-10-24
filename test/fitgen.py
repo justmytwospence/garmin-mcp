@@ -71,7 +71,7 @@ class FitWriter:
         return out + struct.pack("<H", crc16(out))
 
 
-def activity_fit(activity_start: datetime, seconds: int = 30) -> bytes:
+def activity_fit(activity_start: datetime, seconds: int = 30, lap_indexes: bool = True) -> bytes:
     w = FitWriter()
     t0 = fit_ts(activity_start)
     w.message(0, [(0, ENUM, 4), (1, UINT16, 1), (2, UINT16, 3121), (3, UINT32Z, 12345), (4, UINT32, t0)])  # file_id: activity, garmin
@@ -94,7 +94,12 @@ def activity_fit(activity_start: datetime, seconds: int = 30) -> bytes:
             ],
         )
     w.message(78, [(0, UINT16, [850, 860, 870, 0xFFFF, 0xFFFF])])  # hrv
-    w.message(19, [(253, UINT32, t0 + seconds), (2, UINT32, t0), (254, UINT16, 0), (5, ENUM, 1), (7, UINT32, seconds * 1000), (9, UINT32, seconds * 300), (16, UINT8, 122)])
+    lap = [(253, UINT32, t0 + seconds), (2, UINT32, t0), (5, ENUM, 1), (7, UINT32, seconds * 1000), (9, UINT32, seconds * 300), (16, UINT8, 122)]
+    if lap_indexes:
+        w.message(19, [*lap[:2], (254, UINT16, 0), *lap[2:]])
+    else:  # some devices write laps without message_index
+        w.message(19, lap)
+        w.message(19, lap)
     w.message(18, [(253, UINT32, t0 + seconds), (2, UINT32, t0), (254, UINT16, 0), (5, ENUM, 1), (7, UINT32, seconds * 1000), (9, UINT32, seconds * 300), (16, UINT8, 122), (25, UINT16, 0), (26, UINT16, 1)])
     w.message(21, [(253, UINT32, t0 + seconds), (0, ENUM, 0), (1, ENUM, 4), (3, UINT32, 0)])  # stop_all
     w.message(34, [(253, UINT32, t0 + seconds), (0, UINT32, seconds * 1000), (1, UINT16, 1), (2, ENUM, 26), (3, ENUM, 1), (4, ENUM, 0)])  # activity

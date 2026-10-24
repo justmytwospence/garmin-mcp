@@ -222,6 +222,13 @@ def test_fit_decoding(db):
     assert count(db, "fit_record") == 30
 
 
+def test_fit_laps_without_message_index(db):
+    with db.transaction() as tx:
+        s = land_fit(tx, "activity_fit", "77", activity_fit(datetime(2026, 1, 2, 10, 0, tzinfo=UTC), lap_indexes=False))
+    assert s["errors"] == []
+    assert [r["message_index"] for r in db.all("SELECT message_index FROM fit_lap WHERE activity_id = 77 ORDER BY 1")] == [0, 1]
+
+
 def test_fit_file_prefix_isolation(db):
     """Deleting activity 12 must not touch activity 123."""
     with db.transaction() as tx:

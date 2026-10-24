@@ -53,6 +53,11 @@ day_ctx = [
     expr("calendar_date", "DATE", "Day of the wellness file the message came from.", "src.calendar_date"),
     *file_ctx,
 ]
+def msg_index(comment: str) -> Column:
+    """The message_index field, or the message's position among its type when the device omitted it."""
+    return expr("message_index", "INTEGER", comment + " Position among messages of its type when the file has none.", "coalesce(TRY_CAST(b->>'message_index' AS INTEGER), src.idx)", "message_index")
+
+
 idx_col = expr("idx", "INTEGER", "Position of the message within its file.", "src.idx")
 
 fit_file_table = Table(
@@ -204,14 +209,14 @@ fit_session_table = Table(
     name="fit_session",
     comment="Session messages of activity FIT files: one per sport session (multisport activities have several).",
     primary_key=["fit_file_id", "message_index"],
-    columns=[*activity_ctx, f("message_index", "INTEGER", "Session index."), *_session_lap_common, extra()],
+    columns=[*activity_ctx, msg_index("Session index."), *_session_lap_common, extra()],
 )
 
 fit_lap_table = Table(
     name="fit_lap",
     comment="Lap messages of activity FIT files.",
     primary_key=["fit_file_id", "message_index"],
-    columns=[*activity_ctx, f("message_index", "INTEGER", "Lap index."), *_session_lap_common, extra()],
+    columns=[*activity_ctx, msg_index("Lap index."), *_session_lap_common, extra()],
 )
 
 fit_split_table = Table(
@@ -220,7 +225,7 @@ fit_split_table = Table(
     primary_key=["fit_file_id", "message_index"],
     columns=[
         *activity_ctx,
-        f("message_index", "INTEGER", "Split index."),
+        msg_index("Split index."),
         f("split_type", "VARCHAR", "Split type."),
         f("timestamp", "TIMESTAMPTZ", "End time (UTC)."),
         f("start_time", "TIMESTAMPTZ", "Start time (UTC)."),
@@ -317,7 +322,7 @@ fit_length_table = Table(
     primary_key=["fit_file_id", "message_index"],
     columns=[
         *activity_ctx,
-        f("message_index", "INTEGER", "Length index."),
+        msg_index("Length index."),
         f("timestamp", "TIMESTAMPTZ", "End (UTC)."),
         f("start_time", "TIMESTAMPTZ", "Start (UTC)."),
         f("total_elapsed_time", "DOUBLE", "Elapsed seconds."),
