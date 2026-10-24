@@ -99,7 +99,7 @@ def test_sync_status_reuses_the_drift_check(landed_db):
     try:
         assert cache.get() == [] and cache.get() == []
         assert len(calls) == 1
-        cache._at = 0.0
+        cache._at = float("-inf")  # expired, whatever the monotonic clock reads
         cache.get()
         assert len(calls) == 2
     finally:
