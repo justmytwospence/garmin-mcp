@@ -152,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         return auth_main(argv[1:])
     logging.basicConfig(level=(os.environ.get("LOG_LEVEL") or "INFO").upper(), format="%(asctime)s %(name)s %(levelname)s %(message)s", stream=sys.stderr)
     parser = argparse.ArgumentParser(prog="garmin-mcp", description="Garmin Connect MCP server backed by a DuckDB mirror", epilog="`garmin-mcp auth [--check]` runs garmin-mcp-auth (the one-time interactive login).")
+    parser.add_argument("--version", action="version", version=f"{SERVER_NAME} {VERSION}")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("serve", help="serve MCP (default)")
     ie = sub.add_parser("import-export", help="ingest a Garmin account data export (zip) into the mirror's FIT tables without API calls")
