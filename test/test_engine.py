@@ -171,3 +171,24 @@ def test_archived_days_covered_by_wellness_fit_need_no_reload():
     queued = {r["key"] for r in db.all("SELECT key FROM sync_job WHERE kind = 'reload'")}
     assert missing in queued
     assert covered not in queued and pending not in queued
+
+
+def test_files_decoded_by_an_older_parser_are_decoded_again():
+    from garmin_mcp.fit.decode import PARSER_VERSION
+
+    db, transport, client, engine = make_engine()
+    engine.schedule()
+    drain(engine)
+    engine.plan()
+    drain(engine)
+    assert db.scalar("SELECT count(*) FROM raw_file WHERE parser_version = ?", [PARSER_VERSION]) > 0
+    db.run("UPDATE raw_file SET parser_version = ? WHERE kind = 'activity_fit'", [PARSER_VERSION - 1])
+    records = db.scalar("SELECT count(*) FROM fit_record")
+    engine.plan()
+    assert db.scalar("SELECT count(*) FROM sync_job WHERE kind = 'reparse:activity_fit'") == 12
+    calls = len(transport.calls)
+    drain(engine)
+    assert len(transport.calls) == calls, "decoding again costs no Garmin request"
+    assert db.scalar("SELECT count(*) FROM raw_file WHERE parser_version < ?", [PARSER_VERSION]) == 0
+    assert db.scalar("SELECT count(*) FROM fit_record") == records
+    assert engine.plan() == 0

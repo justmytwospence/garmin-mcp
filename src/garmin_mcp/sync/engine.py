@@ -16,7 +16,7 @@ Job kinds and keys:
   poll:self, window:self, list_recent:self, list_full:self,
   snap:<dataset>:<key>, day:<dataset>:<date>, range:<dataset>:<start>_<end>,
   act:<dataset>:<activity id>, activity_fit:<id>, wellness_fit:<date>,
-  reload:<date>, refetch_day:<date>
+  reload:<date>, refetch_day:<date>, reparse:<kind>:<key> (decode a stored file again)
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..db.database import Database
+from ..fit.decode import PARSER_VERSION
 from ..garmin.client import AuthError, GarminClient, Priority, RateLimited
 from ..garmin.datasets import (
     ACTIVITY_DATASETS,
@@ -182,6 +183,7 @@ class SyncEngine:
             rows += self._plan_calendar(start, today)
         rows += self._plan_activities(today)
         rows += self._plan_snapshots(today)
+        rows += self._plan_reparse()
         added = self._enqueue_many(rows)
         added += self._plan_reloads(today)
         return added
@@ -278,6 +280,11 @@ class SyncEngine:
         for r in rows:
             out.append(("activity_fit", r["id"], 25 + self._age_bump(r["d"] or today, today), int(r["sk"] or 0)))
         return out
+
+    def _plan_reparse(self) -> list[tuple[str, str, int, int]]:
+        """Stored FIT files decoded by an older parser are decoded again from disk (no request)."""
+        rows = self.db.all("SELECT kind, key FROM raw_file WHERE parser_version IS NULL OR parser_version < ?", [PARSER_VERSION])
+        return [(f"reparse:{r['kind']}", r["key"], 40, 0) for r in rows]
 
     def _plan_snapshots(self, today: date) -> list[tuple[str, str, int, int]]:
         out = []
@@ -437,6 +444,8 @@ class SyncEngine:
             return f.activity_fit(key, priority=cls).changed
         if kind == "wellness_fit":
             return f.wellness_fit(key, priority=cls).changed
+        if kind.startswith("reparse:"):
+            return f.reparse_file(kind[8:], key).changed
         if kind == "reload":
             if f.reloads_last_24h() >= RELOADS_PER_DAY:
                 slot = f.next_reload_slot() or (datetime.now(UTC) + timedelta(hours=1))
