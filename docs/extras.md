@@ -18,7 +18,7 @@ Every panel is a plain SQL query over the snapshot with Grafana's time macros (`
 
 Notes:
 
-- The plugin needs glibc, hence the Ubuntu image; it is unsigned, so `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS` allow-lists it. It is downloaded from the GitHub release on the first start (`GF_INSTALL_PLUGINS`, 140 MB) into the `grafana-data` volume.
+- The plugin needs glibc, hence the Ubuntu image; it is unsigned, so `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS` allow-lists it. It is downloaded from the GitHub release before the first start (`GF_PLUGINS_PREINSTALL_SYNC`, 140 MB) into the `grafana-data` volume.
 - The datasource path is a DuckDB DSN with `access_mode=read_only`; the service's entrypoint creates two symlinks under `/var/lib/grafana/garmin/` so that plugin versions before 0.4.6 can both parse the DSN and watch the file. Plugin **0.4.6** (October 2026) adds a read-only option and reopens the file when the server replaces the snapshot; until you set `GRAFANA_DUCKDB_PLUGIN_VERSION=0.4.6`, Grafana keeps the snapshot it opened at start and shows a new one after `docker compose restart grafana`.
 - The snapshot is replaced atomically by rename, so a running query keeps reading the file it opened and never sees a half-written one.
 

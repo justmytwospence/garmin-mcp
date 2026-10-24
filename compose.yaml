@@ -104,7 +104,8 @@ services:
       - garmin-mcp
     entrypoint: ["sh", "-c", "mkdir -p /var/lib/grafana/garmin && ln -sfn /data/snapshot/garmin.duckdb /var/lib/grafana/garmin/garmin.duckdb && ln -sfn /data/snapshot/garmin.duckdb '/var/lib/grafana/garmin/garmin.duckdb?access_mode=read_only' && exec /run.sh"]
     environment:
-      GF_INSTALL_PLUGINS: "https://github.com/motherduckdb/grafana-duckdb-datasource/releases/download/v${GRAFANA_DUCKDB_PLUGIN_VERSION:-0.4.5}/motherduck-duckdb-datasource-${GRAFANA_DUCKDB_PLUGIN_VERSION:-0.4.5}.zip;motherduck-duckdb-datasource"
+      # Installed from the GitHub release before Grafana starts (the plugin is not in the catalog).
+      GF_PLUGINS_PREINSTALL_SYNC: "motherduck-duckdb-datasource@${GRAFANA_DUCKDB_PLUGIN_VERSION:-0.4.5}@https://github.com/motherduckdb/grafana-duckdb-datasource/releases/download/v${GRAFANA_DUCKDB_PLUGIN_VERSION:-0.4.5}/motherduck-duckdb-datasource-${GRAFANA_DUCKDB_PLUGIN_VERSION:-0.4.5}.zip"
       GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: motherduck-duckdb-datasource
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       # Grafana asks to change the password at the first sign-in when it is still "admin".
