@@ -21,6 +21,7 @@ garmin-mcp-auth = "garmin_mcp.auth_cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "httpx"]
+docs = ["mkdocs-material==9.7.7"]
 
 [build-system]
 requires = ["hatchling"]

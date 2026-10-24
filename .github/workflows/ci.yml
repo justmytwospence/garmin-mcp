@@ -7,9 +7,32 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --frozen --group docs
       - run: uv run pytest -q
+      # The tools and schema references are generated; the committed pages must match the code.
+      - run: uv run python scripts/gen_tools.py --check
+      - run: uv run python scripts/gen_schema.py --check
+      - run: uv run mkdocs build --strict
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          push: false
+          tags: garmin-mcp:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: |
+          docker run --rm -e GARMIN_SYNC=off -e MCP_TRANSPORT=http -d --name ci garmin-mcp:ci
+          for i in $(seq 1 30); do
+            if docker exec ci python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"; then exit 0; fi
+            sleep 2
+          done
+          docker logs ci; exit 1

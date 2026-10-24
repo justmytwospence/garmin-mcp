@@ -1,0 +1,84 @@
+site_name: garmin-mcp
+site_description: An MCP server for Garmin Connect backed by a complete local DuckDB mirror
+site_url: https://justmytwospence.github.io/garmin-mcp/
+repo_url: https://github.com/justmytwospence/garmin-mcp
+repo_name: justmytwospence/garmin-mcp
+edit_uri: edit/main/docs/
+copyright: MIT. Not affiliated with or endorsed by Garmin.
+strict: true
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+nav:
+  - Overview: index.md
+  - Quickstart: quickstart.md
+  - Configuration: configuration.md
+  - Authentication: authentication.md
+  - Clients: clients.md
+  - How sync works: sync.md
+  - Data:
+      - The mirror: data/index.md
+      - Schema reference: data/schema.md
+  - Extras: extras.md
+  - Operations: operations.md
+  - Tools reference: reference/tools.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: [.]
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/justmytwospence/garmin-mcp
