@@ -1,9 +1,13 @@
 """Read-only snapshots of the mirror for other readers (notebooks, dashboards, backups).
 
-DuckDB lets only one process open the live file, so after changes the whole database
-is copied (COPY FROM DATABASE, a consistent copy taken under the write lock) into a new
-file that atomically replaces the previous snapshot. Readers attach it, locally or over
-HTTP (the route serves byte ranges, which is how DuckDB's httpfs reads):
+DuckDB lets only one process open the live file, so after changes the database file is
+copied, under the write lock and right after a CHECKPOINT (which folds the write-ahead
+log into the file, so the file alone is a complete, consistent database), into a new
+file that atomically replaces the previous snapshot. A plain file copy costs no memory
+and a few seconds, where COPY FROM DATABASE rebuilt every table through the buffer pool
+(minutes, and more memory than a 2 GB mirror has under the container limit). Readers
+attach the copy, locally or over HTTP (the route serves byte ranges, which is how
+DuckDB's httpfs reads):
 
     ATTACH 'http://garmin-mcp:8000/snapshot.duckdb' AS garmin (READ_ONLY);
 """
@@ -13,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import threading
 import time
 from email.utils import formatdate
@@ -45,19 +50,20 @@ class SnapshotPublisher:
         self.dirty = True
 
     def publish(self) -> Path:
-        """Copy the database into a new file and swap it in. Safe to call from any thread."""
+        """Checkpoint, copy the database file and swap the copy in. Safe to call from any thread."""
         with self._lock:
             tmp = self.path.with_name(self.path.name + ".tmp")
             for stale in (tmp, tmp.with_name(tmp.name + ".wal")):
                 if stale.exists():
                     stale.unlink()
-            catalog = self.db.catalog()
+            source = self.db.options.path
+            if source == ":memory:":
+                raise RuntimeError("Snapshots need a file-backed mirror")
             with self.db.write() as tx:
-                tx.run(f"ATTACH '{tmp}' AS snapshot_target")
-                try:
-                    tx.run(f'COPY FROM DATABASE "{catalog}" TO snapshot_target')
-                finally:
-                    tx.run("DETACH snapshot_target")
+                # Every write goes through this lock, so nothing touches the file during the
+                # copy; readers on their own cursors keep running (a checkpoint tolerates them).
+                tx.run("CHECKPOINT")
+                shutil.copyfile(source, tmp)
             os.replace(tmp, self.path)
             self.dirty = False
             self.last_published = time.time()
