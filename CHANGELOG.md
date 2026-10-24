@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-24
+
+### Fixed
+
+- After a rename (or a description, type or event-type edit), the mirror could keep the old value when an activity list fetched before the write was newer than nothing but older than the re-fetched detail; edited fields now come from whichever payload is newer.
+
 ## [1.0.0] - unreleased
 
 The first release meant for other people: a self-hosted compose stack with documentation. Everything below the "Changed" heading summarises the 0.1.x line it grew out of.
