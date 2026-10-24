@@ -144,8 +144,14 @@ def import_export(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in ("auth", "garmin-mcp-auth"):
+        # The image's entrypoint is garmin-mcp, so `docker compose run --rm garmin-mcp garmin-mcp-auth` lands here.
+        from .auth_cli import main as auth_main
+
+        return auth_main(argv[1:])
     logging.basicConfig(level=(os.environ.get("LOG_LEVEL") or "INFO").upper(), format="%(asctime)s %(name)s %(levelname)s %(message)s", stream=sys.stderr)
-    parser = argparse.ArgumentParser(prog="garmin-mcp", description="Garmin Connect MCP server backed by a DuckDB mirror")
+    parser = argparse.ArgumentParser(prog="garmin-mcp", description="Garmin Connect MCP server backed by a DuckDB mirror", epilog="`garmin-mcp auth [--check]` runs garmin-mcp-auth (the one-time interactive login).")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("serve", help="serve MCP (default)")
     ie = sub.add_parser("import-export", help="ingest a Garmin account data export (zip) into the mirror's FIT tables without API calls")

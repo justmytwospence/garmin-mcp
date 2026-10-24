@@ -26,6 +26,15 @@ log = logging.getLogger("garmin_mcp.client")
 
 Priority = Literal["interactive", "incremental", "backfill"]
 
+# The commands every authentication message points at.
+AUTH_COMMAND = "docker compose run --rm garmin-mcp garmin-mcp-auth"
+AUTH_COMMAND_LOCAL = "garmin-mcp-auth"
+RESTART_COMMAND = "docker compose restart garmin-mcp"
+
+
+def auth_fix() -> str:
+    return f"Run `{AUTH_COMMAND}` (outside Docker: `{AUTH_COMMAND_LOCAL}`), enter the MFA code Garmin sends, then `{RESTART_COMMAND}`."
+
 
 class GarminError(Exception):
     def __init__(self, message: str, status: int | None = None) -> None:
@@ -176,6 +185,9 @@ class ClientState:
     backoff_until: float = 0.0
     auth_error: str | None = None
     auth_error_at: datetime | None = None
+    # Why authentication failed (see garmin.auth.classify_login_error) and what fixes it.
+    auth_error_kind: str | None = None
+    auth_error_fix: str | None = None
     last_request_at: float = 0.0
     requests: int = 0
     errors: int = 0
@@ -227,7 +239,7 @@ class GarminClient:
     def check_available(self, priority: Priority) -> None:
         """Raise if Garmin must not be asked right now."""
         if self.state.auth_error:
-            raise AuthError(f"Not authenticated: {self.state.auth_error}. Run garmin-mcp-auth.")
+            raise AuthError(f"Not authenticated: {self.state.auth_error}")
         remaining = self.backoff_remaining()
         if remaining > 0:
             raise RateLimited(f"Backing off after a 429 for another {int(remaining)} s", 429)
@@ -308,10 +320,13 @@ class GarminClient:
                 except AuthError as err:
                     status = err.status
                     with self.state.lock:
-                        self.state.auth_error = str(err)[:300]
+                        if not self.state.auth_error:
+                            self.state.auth_error = f"Garmin rejected the session while requesting {path} (HTTP {err.status or 'error'}: {str(err)[:200]}); the tokens expired or were revoked. {auth_fix()}"
+                            self.state.auth_error_kind = "expired"
+                            self.state.auth_error_fix = auth_fix()
                         self.state.auth_error_at = datetime.now(UTC)
                         self.state.last_error = f"auth: {err}"
-                    log.error("garmin: authentication failed on %s: %s", path, err)
+                    log.error("garmin: authentication failed on %s: %s. Background sync is stopped; %s", path, err, auth_fix())
                     raise err
                 except Unavailable as err:
                     status = err.status
@@ -380,6 +395,7 @@ class GarminClient:
             "rate_limits": s.rate_limits,
             "backoff_remaining_s": int(self.backoff_remaining()),
             "auth_error": s.auth_error,
+            "auth_error_kind": s.auth_error_kind,
             "auth_error_at": s.auth_error_at.isoformat() if s.auth_error_at else None,
             "last_error": s.last_error,
             "background_gap_s": self.background_gap,

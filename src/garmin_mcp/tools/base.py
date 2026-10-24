@@ -26,7 +26,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import TextContent, ToolAnnotations
 
-from ..garmin.client import AuthError, GarminError, NotFound, RateLimited, Unavailable
+from ..garmin.client import AuthError, GarminError, NotFound, RateLimited, Unavailable, auth_fix
 from ..mirror import GarminNotFound, Mirror, Provenance, collect_provenance, merge_provenance
 from .profiles import resolve_tool_profile
 
@@ -99,7 +99,8 @@ def error_text(err: Exception) -> str:
     if isinstance(err, RateLimited):
         return f"Garmin Connect rate limit: {err}. The mirror had no copy to serve; try again later."
     if isinstance(err, AuthError):
-        return f"Garmin authentication failed: {err}. Run garmin-mcp-auth and restart the server."
+        msg = str(err)
+        return f"Garmin authentication failed: {msg}" + ("" if "garmin-mcp-auth" in msg else f" {auth_fix()}")
     if isinstance(err, Unavailable):
         return f"Garmin Connect unreachable: {err}"
     if isinstance(err, GarminError):
