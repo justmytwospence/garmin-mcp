@@ -53,7 +53,7 @@ These shape the stack rather than the server; `compose.yaml` reads them from `.e
 | `GARMIN_MCP_PORT` | `8000` | Host port for `/mcp` |
 | `GARMIN_MCP_MEMORY` | `1536M` | Container memory limit; raise together with `DUCKDB_MEMORY_LIMIT` |
 | `OIDC_ISSUER`, `OIDC_JWKS_URL`, `OIDC_CLIENT_ID`, `PUBLIC_URL`, `OAUTH_PORT`, `MCP_BUFFER` | | [OAuth profile](authentication.md#oauth-21-with-your-own-provider) |
-| `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_PORT`, `GRAFANA_MEMORY`, `GRAFANA_DUCKDB_PLUGIN_VERSION` | `admin`, `admin`, `3001`, `1024M`, `0.4.5` | [Grafana profile](extras.md#grafana) |
+| `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_PORT`, `GRAFANA_MEMORY`, `GRAFANA_DUCKDB_PLUGIN_VERSION` | `admin`, `admin`, `3001`, `1024M`, `0.4.6` | [Grafana profile](extras.md#grafana) |
 | `NOTEBOOKS_PORT`, `NOTEBOOKS_MEMORY` | `2718`, `1024M` | [Notebooks profile](extras.md#notebooks) |
 | `BACKUP_DIR`, `BACKUP_CRON`, `BACKUP_RETENTION_DAYS` | `./backups`, `0 4 * * *`, `14` | [Backup profile](extras.md#backups) |
 
