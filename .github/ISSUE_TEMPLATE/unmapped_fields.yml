@@ -1,0 +1,21 @@
+name: Unmapped fields
+description: garmin_sync_status lists fields the schema does not map
+labels: [schema]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Garmin added fields the typed tables do not have columns for yet. The values are safe in the raw store; this report lets a release add the columns.
+  - type: textarea
+    id: fields
+    attributes:
+      label: unmapped_fields
+      description: The `unmapped_fields` list from `garmin_sync_status` (type, key, example_count). No values needed.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example value (optional)
+      description: If a field's meaning is not obvious from its name, one example value with anything personal replaced.

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://justmytwospence.github.io/garmin-mcp/
+    about: Quickstart, configuration, troubleshooting and the tools reference.
+  - name: Security
+    url: https://github.com/justmytwospence/garmin-mcp/security/advisories/new
+    about: Report a vulnerability privately.

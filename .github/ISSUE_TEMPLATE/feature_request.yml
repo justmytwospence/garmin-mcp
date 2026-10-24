@@ -1,0 +1,16 @@
+name: Feature request
+description: A tool, dataset, profile or document that is missing
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like
+      description: What you want to ask or do, and which client or profile it concerns.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What it would let you do that the existing tools, `garmin_query` over the snapshot, or the extras do not.

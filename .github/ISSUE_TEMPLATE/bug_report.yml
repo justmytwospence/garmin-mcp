@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Please remove anything personal from what you paste: display names, activity ids, dates, locations, health values. Never attach a mirror, a snapshot, a token file or a FIT file.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The image tag or `garmin-mcp --version`, and how it runs (compose, stdio, which profiles).
+      placeholder: ghcr.io/justmytwospence/garmin-mcp:1.0.0, compose with the grafana profile
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: garmin_sync_status
+      description: For sync, login or data problems, the `login`, `coverage`, `recent_errors` and `pacing` parts of `garmin_sync_status`, with identifiers removed.
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines
+      description: Relevant lines of `docker compose logs garmin-mcp` (or the process's stderr), with identifiers removed.
+      render: text
+  - type: dropdown
+    id: region
+    attributes:
+      label: Garmin region
+      options:
+        - garmin.com
+        - garmin.cn (GARMIN_IS_CN=true)
