@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Fixed
 
-- After a rename (or a description, type or event-type edit), the mirror could keep the old value when an activity list fetched before the write was newer than nothing but older than the re-fetched detail; edited fields now come from whichever payload is newer.
+- After a rename (or a description, type or event-type edit), the mirror could keep the old value, because the name always came from the activity list even when the re-fetched detail was newer. Edited fields now come from whichever payload is newer.
 
 ## [1.0.0] - unreleased
 
