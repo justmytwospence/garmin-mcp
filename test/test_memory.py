@@ -1,4 +1,5 @@
-"""Wide projections stay within the memory limit the image runs with.
+"""Memory: wide projections stay within a DuckDB memory limit below the image's default
+(512 MB), projections and the drift check read only what they need.
 
 DuckDB parses JSON afresh for every extraction expression; before projections parsed
 each body once, a page of 100 activity summaries (200 columns) exhausted 384 MB.

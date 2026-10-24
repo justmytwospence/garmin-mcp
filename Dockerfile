@@ -19,7 +19,10 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=8000 \
     GARMIN_DB_PATH=/data/garmin.duckdb \
     GARMINTOKENS=/data/tokens \
-    DUCKDB_MEMORY_LIMIT=384MB \
+    # DuckDB otherwise sizes its buffer pool to 80% of host RAM and the container gets
+    # OOM-killed. Peak RSS is about 100 MB + this limit + 300 MB of transient parsing
+    # memory, so 512 MB fits a 1.5 GB container (see docs/operations.md).
+    DUCKDB_MEMORY_LIMIT=512MB \
     DUCKDB_THREADS=2 \
     PATH="/app/.venv/bin:$PATH"
 RUN useradd --create-home --uid 1000 app \
