@@ -326,14 +326,31 @@ class SyncEngine:
         return out
 
     def _plan_reloads(self, today: date) -> int:
-        """Days older than ~6 months whose intraday data is archived get an archive reload request."""
+        """Archived days that the wellness FIT files do not cover get an archive reload request.
+
+        Garmin offloads the intraday JSON of days older than ~6 months, but the day's wellness
+        FIT files stay downloadable and carry the same series at higher resolution (heart rate,
+        per-minute stress and Body Battery, respiration, SpO2, sleep stages and scores, HRV).
+        A reload (25 a day) is only worth spending on a day whose FIT download came back
+        missing or without monitoring data; days whose FIT has not been fetched yet wait.
+        """
+        covered = """EXISTS (SELECT 1 FROM raw_latest w WHERE w.object_type = 'wellness_fit' AND w.object_key = strftime({d}, '%Y-%m-%d') AND w.status = 'ok')
+                 AND EXISTS (SELECT 1 FROM fit_monitoring m WHERE m.calendar_date = {d})"""
+        # Drop queued reloads the FIT files have made unnecessary (or whose FIT is still pending).
+        self.db.run(
+            f"""DELETE FROM sync_job WHERE kind = 'reload' AND (
+                 NOT EXISTS (SELECT 1 FROM raw_latest w WHERE w.object_type = 'wellness_fit' AND w.object_key = sync_job.key)
+                 OR ({covered.format(d='sync_job.key::DATE')}))"""
+        )
         cutoff = today - timedelta(days=ARCHIVE_AGE_DAYS)
         rows = self.db.all(
-            """SELECT h.calendar_date AS d FROM heart_rate_day h
+            f"""SELECT h.calendar_date AS d FROM heart_rate_day h
                JOIN daily_summary s USING (calendar_date)
                WHERE h.calendar_date <= ? AND h.sample_count = 0 AND coalesce(s.includes_wellness_data, false)
                  AND coalesce(s.total_steps, 0) + coalesce(s.sleeping_seconds, 0) > 0
                  AND NOT EXISTS (SELECT 1 FROM reload_request q WHERE q.calendar_date = h.calendar_date)
+                 AND EXISTS (SELECT 1 FROM raw_latest w WHERE w.object_type = 'wellness_fit' AND w.object_key = strftime(h.calendar_date, '%Y-%m-%d'))
+                 AND NOT ({covered.format(d='h.calendar_date')})
                ORDER BY h.calendar_date DESC""",
             [cutoff],
         )

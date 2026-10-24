@@ -131,6 +131,8 @@ def test_archive_reload_quota():
         d = (old - timedelta(days=i)).isoformat()
         db.run("INSERT OR REPLACE INTO daily_summary (calendar_date, total_steps, includes_wellness_data, fetched_at) VALUES (?, 1000, true, now())", [d])
         db.run("INSERT OR REPLACE INTO heart_rate_day (calendar_date, sample_count, fetched_at) VALUES (?, 0, now())", [d])
+        # ... and their wellness FIT download came back missing, so only a reload can fill them
+        db.run("INSERT OR REPLACE INTO raw_latest VALUES ('wellness_fit', ?, 'not_found', NULL, NULL, now())", [d])
     engine.plan()
     assert db.scalar("SELECT count(*) FROM sync_job WHERE kind = 'reload'") == 40
     drain(engine)
@@ -144,3 +146,28 @@ def test_archive_reload_quota():
     db.run("UPDATE sync_job SET not_before = now() - INTERVAL 1 MINUTE WHERE kind = 'refetch_day'")
     engine.step()
     assert db.scalar("SELECT count(*) FROM reload_request WHERE refetched_at IS NOT NULL") == 1
+
+
+def test_archived_days_covered_by_wellness_fit_need_no_reload():
+    db, transport, client, engine = make_engine()
+    engine.schedule()
+    drain(engine)
+    engine.plan()
+    drain(engine)
+    old = datetime.now(UTC).date() - timedelta(days=400)
+    days = [(old - timedelta(days=i)).isoformat() for i in range(3)]
+    for d in days:
+        db.run("INSERT OR REPLACE INTO daily_summary (calendar_date, total_steps, includes_wellness_data, fetched_at) VALUES (?, 1000, true, now())", [d])
+        db.run("INSERT OR REPLACE INTO heart_rate_day (calendar_date, sample_count, fetched_at) VALUES (?, 0, now())", [d])
+        db.run("DELETE FROM raw_latest WHERE object_type = 'wellness_fit' AND object_key = ?", [d])
+        db.run("DELETE FROM sync_job WHERE kind = 'reload' AND key = ?", [d])
+    covered, missing, pending = days
+    db.run("INSERT OR REPLACE INTO raw_latest VALUES ('wellness_fit', ?, 'ok', 'h', now(), now())", [covered])
+    db.run("INSERT INTO fit_monitoring (calendar_date, fit_file_id, idx, heart_rate) VALUES (?, 'w', 0, 60)", [covered])
+    db.run("INSERT OR REPLACE INTO raw_latest VALUES ('wellness_fit', ?, 'not_found', NULL, NULL, now())", [missing])
+    # a reload queued before the FIT arrived is dropped once the FIT covers the day
+    db.run("INSERT INTO sync_job (kind, key, priority) VALUES ('reload', ?, 50)", [covered])
+    engine.plan()
+    queued = {r["key"] for r in db.all("SELECT key FROM sync_job WHERE kind = 'reload'")}
+    assert missing in queued
+    assert covered not in queued and pending not in queued
