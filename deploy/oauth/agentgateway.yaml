@@ -37,7 +37,8 @@ mcp:
         bearerMethodsSupported: [header]
     authorization:
       rules:
-      # Only tokens issued to the registered client. Checked on client_id rather than aud
-      # because some providers (Authelia's device grant, for one) issue tokens with an
-      # empty aud; ID tokens carry no client_id, so they are refused as well.
-      - require: 'jwt.client_id == "$OIDC_CLIENT_ID"'
+      # Only access tokens issued to the registered client: providers put the client id
+      # in client_id (Authelia, Pocket ID) or azp (Keycloak, Authentik). Not aud, which
+      # Authelia's device grant leaves empty; ID tokens carry neither claim and are refused.
+      # Add a group or email check here to admit only some of the provider's users.
+      - require: '(has(jwt.client_id) && jwt.client_id == "$OIDC_CLIENT_ID") || (has(jwt.azp) && jwt.azp == "$OIDC_CLIENT_ID")'
