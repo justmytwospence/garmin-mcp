@@ -1,6 +1,9 @@
-"""Strava data for the sync, read from a strava-mcp snapshot.
+"""Strava data for the sync, read from strava-mcp: its live export (GET
+/export/garmin-sync) or its published snapshot.
 
-Each read opens its own in-memory DuckDB instance and attaches the snapshot read-only,
+The export is a few kilobytes of JSON computed live, so a rename reaches the sync
+within a minute of strava-mcp hearing of it. The snapshot is republished at most
+hourly. For the snapshot, each read opens its own in-memory DuckDB instance and attaches the snapshot read-only,
 so the mirror's connection (and its memory limit and file-access lockdown) is never
 involved, and garmin_query never sees Strava data. strava-mcp replaces the snapshot
 by renaming a new file over it, so it is attached afresh on every read.
@@ -12,13 +15,22 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import json
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Protocol
+
 import duckdb
 
 from .config import StravaSyncConfig
 
 
-class SnapshotUnavailable(Exception):
-    """The snapshot cannot be read or is not a strava-mcp snapshot."""
+class SourceUnavailable(Exception):
+    """strava-mcp's export or snapshot cannot be read."""
+
+
+SnapshotUnavailable = SourceUnavailable
 
 
 @dataclass(frozen=True)
@@ -76,7 +88,7 @@ class StravaSnapshot:
         con.execute("SET GLOBAL TimeZone = 'UTC'")
         con.execute("SET memory_limit = '256MB'")
         con.execute("SET threads = 1")
-        src = self.config.snapshot
+        src = self.config.snapshot or ""
         try:
             if self.config.is_url:
                 con.execute("INSTALL httpfs")
@@ -85,12 +97,12 @@ class StravaSnapshot:
                     header = f"Bearer {self.config.token}".replace("'", "''")
                     con.execute(f"CREATE SECRET strava_snapshot (TYPE http, EXTRA_HTTP_HEADERS MAP {{'Authorization': '{header}'}})")
             elif not Path(src).is_file():
-                raise SnapshotUnavailable(f"no Strava snapshot at {src}")
+                raise SourceUnavailable(f"no Strava snapshot at {src}")
             con.execute(f"ATTACH '{src.replace(chr(39), chr(39) * 2)}' AS strava (READ_ONLY)")
         except duckdb.Error as err:
             con.close()
-            raise SnapshotUnavailable(f"cannot attach the Strava snapshot {src}: {err}") from err
-        except SnapshotUnavailable:
+            raise SourceUnavailable(f"cannot attach the Strava snapshot {src}: {err}") from err
+        except SourceUnavailable:
             con.close()
             raise
         return con
@@ -115,12 +127,12 @@ class StravaSnapshot:
                     activities = [
                         StravaActivity(int(r[0]), r[1] or "", r[2], int(r[3]) if r[3] is not None else None)
                         for r in con.execute(
-                            "SELECT id, name, start_date, elapsed_time FROM strava.activity WHERE start_date >= ? AND start_date IS NOT NULL ORDER BY start_date",
+                            "SELECT id, name, start_date, elapsed_time FROM strava.activity WHERE start_date >= ? AND start_date IS NOT NULL AND deleted_at IS NULL ORDER BY start_date",
                             [since],
                         ).fetchall()
                     ]
             except duckdb.Error as err:
-                raise SnapshotUnavailable(f"the Strava snapshot {self.config.snapshot} is not a readable strava-mcp snapshot: {err}") from err
+                raise SourceUnavailable(f"the Strava snapshot {self.config.snapshot} is not a readable strava-mcp snapshot: {err}") from err
         finally:
             con.close()
         activities_checked = None
@@ -130,3 +142,55 @@ class StravaSnapshot:
             except ValueError:
                 activities_checked = None
         return StravaData(checked.get("route_list"), activities_checked, routes, activities)
+
+
+class StravaExport:
+    """strava-mcp's GET /export/garmin-sync, with the snapshot token as bearer."""
+
+    def __init__(self, config: StravaSyncConfig, *, timeout: float = 30.0) -> None:
+        self.config = config
+        self.timeout = timeout
+
+    def read(self, since: datetime | None) -> StravaData:
+        url = self.config.export_url or ""
+        if since is not None:
+            url += ("&" if "?" in url else "?") + urllib.parse.urlencode({"since": since.isoformat()})
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        if self.config.token:
+            req.add_header("Authorization", f"Bearer {self.config.token}")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310 (configured URL)
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            raise SourceUnavailable(f"strava-mcp's export {self.config.export_url} answered HTTP {err.code}") from err
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as err:
+            raise SourceUnavailable(f"cannot read strava-mcp's export {self.config.export_url}: {err}") from err
+        try:
+            routes = [
+                StravaRoute(int(r["id"]), r.get("name") or "", float(r["distance"]) if r.get("distance") is not None else None,
+                            (float(r["start"][0]), float(r["start"][1])) if r.get("start") else None)
+                for r in body["starred_routes"]
+            ]
+            activities = [
+                StravaActivity(int(a["id"]), a.get("name") or "", _ts(a["start_date"]), int(a["elapsed_time"]) if a.get("elapsed_time") is not None else None)
+                for a in body["activities"]
+            ]
+            return StravaData(_ts_or_none(body.get("route_list_checked_at")), _ts_or_none(body.get("activity_list_checked_at")), routes, activities)
+        except (KeyError, TypeError, ValueError, IndexError) as err:
+            raise SourceUnavailable(f"strava-mcp's export {self.config.export_url} is not in the expected shape: {err}") from err
+
+
+def _ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _ts_or_none(value: str | None) -> datetime | None:
+    return _ts(value) if value else None
+
+
+class Source(Protocol):
+    def read(self, since: datetime | None) -> StravaData: ...
+
+
+def make_source(config: StravaSyncConfig) -> Source:
+    return StravaExport(config) if config.export_url else StravaSnapshot(config)

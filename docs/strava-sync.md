@@ -1,6 +1,6 @@
 # Strava sync
 
-An optional background task for people who also run [strava-mcp](https://github.com/justmytwospence/strava-mcp). It is off unless `STRAVA_SYNC` is set, and it never talks to Strava: it reads strava-mcp's read-only snapshot, so it needs no Strava credentials and uses none of Strava's API quota.
+An optional background task for people who also run [strava-mcp](https://github.com/justmytwospence/strava-mcp). It is off unless `STRAVA_SYNC` is set, and it never talks to Strava: it reads what strava-mcp already mirrors, so it needs no Strava credentials and uses none of Strava's API quota.
 
 It does two things Garmin and Strava do not do for each other:
 
@@ -11,16 +11,26 @@ It does two things Garmin and Strava do not do for each other:
 
 ```sh
 STRAVA_SYNC=titles,courses
-STRAVA_SNAPSHOT=/strava/strava.duckdb          # strava-mcp's snapshot/strava.duckdb, mounted read-only
-# or, over HTTP:
-# STRAVA_SNAPSHOT=http://strava-mcp:8000/snapshot.duckdb
-# STRAVA_SNAPSHOT_TOKEN=<strava-mcp's SNAPSHOT_TOKEN>
-STRAVA_SYNC_COURSES=dry-run                    # report orphaned courses, delete none (the default)
+STRAVA_EXPORT_URL=http://strava-mcp:8000/export/garmin-sync   # strava-mcp 4.2 or later
+STRAVA_SNAPSHOT_TOKEN=<strava-mcp's SNAPSHOT_TOKEN>
+STRAVA_SYNC_COURSES=dry-run                                    # report orphaned courses, delete none (the default)
 ```
+
+The export is a few kilobytes of JSON that strava-mcp computes live from its mirror. Without it, `STRAVA_SNAPSHOT` reads strava-mcp's snapshot instead (`snapshot/strava.duckdb` mounted read-only, or its `http(s)://…/snapshot.duckdb` URL with the same token); that works with any strava-mcp version, but the snapshot is republished at most hourly, so changes take up to an hour longer.
 
 Then check `strava_sync_plan`, do the first cleanup with `strava_sync_apply` (below), and set `STRAVA_SYNC_COURSES=on`. Every variable is on the [configuration page](configuration.md#strava-sync-optional).
 
-The engine runs the sync every 15 minutes as the job `strava_sync:self`, behind the device poll and the activity listing. Its Garmin requests are paced like every other request, and it stops for Garmin's 429 backoff like everything else.
+The engine runs the sync every 2 minutes as the job `strava_sync:self`, behind the device poll and the activity listing. A run that finds nothing to do sends no Garmin request: renames are decided from the mirror, and Garmin's course list is fetched only when the starred routes changed, before any deletion, and otherwise hourly. Its Garmin requests are paced like every other request, and it stops for Garmin's 429 backoff like everything else.
+
+## How fast
+
+| Change on Strava | Reaches strava-mcp | Reaches Garmin Connect |
+|---|---|---|
+| Rename an activity | at once (webhook) | within about 2 minutes |
+| Name a just-uploaded activity | at once | within a few minutes: when the mirror has not listed the Garmin activity yet, the sync asks for the listing once |
+| Unstar a route | within 15 minutes (route list poll; Strava sends no event) | within about 2 minutes after that |
+
+With `STRAVA_SNAPSHOT` add up to an hour to each. The watch picks up a course change at its next sync with Garmin Connect.
 
 ## Titles
 
@@ -30,8 +40,6 @@ A Strava activity is paired with the Garmin activity that started within 60 seco
 - When the Strava name differs from what the sync last acted on, the Garmin activity is renamed. Its current Garmin name is fetched first.
 - **A Garmin name you edited by hand wins.** When the Garmin name differs from the name the sync last wrote, the sync leaves it alone, reports a conflict once, and acts again only after the Strava name changes again.
 - Only activities that started on or after `STRAVA_SYNC_TITLES_SINCE` are considered. By default that is the day the sync first ran, so turning it on never renames your history. Set an earlier date to backfill; renames then go at most `STRAVA_SYNC_MAX_RENAMES` (20) per run.
-
-How quickly a rename arrives depends on strava-mcp: its webhook receives the rename at once, and its snapshot is republished within the hour.
 
 ## Courses
 
@@ -48,9 +56,9 @@ When several courses match the same route (Strava makes a new course when you ed
 Orphans are deleted only when all of these hold:
 
 - `STRAVA_SYNC_COURSES=on`.
-- Strava's route list in the snapshot was refreshed within `STRAVA_SYNC_MAX_AGE_HOURS` (48).
-- The snapshot lists at least one starred route. An empty list would otherwise delete every Strava-made course.
-- There are no more than `STRAVA_SYNC_MAX_DELETES` (10) orphans. Above the cap, nothing is deleted and the run says so, so a broken snapshot cannot empty your course library.
+- strava-mcp refreshed Strava's route list within `STRAVA_SYNC_MAX_AGE_HOURS` (48).
+- strava-mcp lists at least one starred route. An empty list would otherwise delete every Strava-made course.
+- There are no more than `STRAVA_SYNC_MAX_DELETES` (10) orphans. Above the cap, nothing is deleted and the run says so, so a bad read of Strava data cannot empty your course library.
 
 !!! warning "Deleted courses cannot be restored"
     Garmin Connect has no trash for courses. Look at `strava_sync_plan` before turning deletions on, and keep the route starred on Strava if you want the course.

@@ -4,12 +4,13 @@ through the paced Garmin client, and keeps the ledger (strava_link) and an audit
 
 The engine runs it every STRAVA_SYNC_INTERVAL_MINUTES as the job strava_sync:self; the
 tools run it on demand. A per-run cap bounds what one run can change; above the cap
-for deletions nothing is deleted and the run says so, so a bad snapshot can never
+for deletions nothing is deleted and the run says so, so a bad read of Strava data can never
 empty the course library. strava_sync_apply lifts the caps (and dry-run) for one run.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
@@ -22,7 +23,7 @@ from ..garmin.client import NotFound, Priority
 from ..garmin.datasets import dataset
 from .config import StravaSyncConfig
 from .reconcile import CoursePlan, GarminActivity, GarminCourse, TitleLink, TitlePlan, plan_courses, plan_titles
-from .source import SnapshotUnavailable, StravaData, StravaSnapshot
+from .source import Source, SourceUnavailable, StravaData, make_source
 
 if TYPE_CHECKING:
     from ..db.database import Database
@@ -32,6 +33,15 @@ log = logging.getLogger("garmin_mcp.strava_sync")
 
 SINCE_STATE = "strava_sync:titles_since"
 LAST_STATE = "strava_sync:last_run"
+ROUTES_FP_STATE = "strava_sync:routes_fingerprint"
+COURSES_AT_STATE = "strava_sync:courses_refreshed_at"
+LISTED_STATE = "strava_sync:listing_requested"
+# The course list is re-fetched from Garmin when the starred routes change, before any
+# deletion, and otherwise at most this often; runs in between plan from the mirror.
+COURSES_MAX_AGE = timedelta(hours=1)
+# A Strava activity this recent with no Garmin activity in the mirror asks for the
+# activity listing once (the mirror lists every 15 minutes on its own).
+LISTING_WINDOW = timedelta(hours=48)
 ACTIVITY_PATH = "/activity-service/activity"
 COURSE_PATH = "/course-service/course"
 
@@ -45,11 +55,11 @@ class Planned:
 
 
 class StravaSync:
-    def __init__(self, db: Database, engine: SyncEngine, config: StravaSyncConfig, *, source: StravaSnapshot | None = None, now: Callable[[], datetime] | None = None) -> None:
+    def __init__(self, db: Database, engine: SyncEngine, config: StravaSyncConfig, *, source: Source | None = None, now: Callable[[], datetime] | None = None) -> None:
         self.db = db
         self.engine = engine
         self.config = config
-        self.source = source or StravaSnapshot(config)
+        self.source = source or make_source(config)
         self._now = now or (lambda: datetime.now(UTC))
         self._lock = threading.Lock()
 
@@ -99,13 +109,33 @@ class StravaSync:
 
     # ------------------------------------------------------------- planning
 
-    def compute(self, priority: Priority, *, refresh: bool = True) -> Planned:
+    @staticmethod
+    def _routes_fingerprint(data: StravaData) -> str:
+        items = sorted((r.id, r.name, r.distance, r.start) for r in data.starred_routes)
+        return hashlib.sha256(json.dumps(items, default=str).encode()).hexdigest()
+
+    def _courses_fresh(self, fingerprint: str) -> bool:
+        if self.engine.get_state(ROUTES_FP_STATE) != fingerprint:
+            return False
+        at = self.engine.get_state(COURSES_AT_STATE)
+        return bool(at) and self._now() - datetime.fromisoformat(at) < COURSES_MAX_AGE
+
+    def _refresh_courses(self, priority: Priority) -> None:
+        self.engine.fetch.snapshot(dataset("courses"), priority=priority)
+        self.engine.set_state(COURSES_AT_STATE, self._now().isoformat())
+
+    def _would_delete(self, plan: CoursePlan) -> bool:
+        return bool(plan.delete) and self.config.courses_mode == "on" and len(plan.delete) <= self.config.max_deletes
+
+    def compute(self, priority: Priority, *, refresh: bool | str = True) -> Planned:
+        """refresh: True re-fetches Garmin's course list first; "auto" only when the starred routes changed, the
+        list is over an hour old, or the plan would delete a course (so deletions always act on a fresh list)."""
         problems: list[str] = []
         since_day = self.titles_since()
         since = datetime(since_day.year, since_day.month, since_day.day, tzinfo=UTC) if since_day else None
         try:
             data = self.source.read(since)
-        except SnapshotUnavailable as err:
+        except SourceUnavailable as err:
             return Planned(None, None, None, [str(err)])
         titles = None
         if self.config.titles and since is not None:
@@ -114,16 +144,35 @@ class StravaSync:
         if self.config.courses:
             age = self._now() - data.routes_checked_at if data.routes_checked_at else None
             if age is None:
-                problems.append("courses skipped: the Strava snapshot has no route list yet")
+                problems.append("courses skipped: strava-mcp has no route list yet")
             elif age > self.config.max_age:
-                problems.append(f"courses skipped: Strava's route list in the snapshot is {age.total_seconds() / 3600:.0f} h old (limit {self.config.max_age.total_seconds() / 3600:.0f} h)")
+                problems.append(f"courses skipped: strava-mcp's route list is {age.total_seconds() / 3600:.0f} h old (limit {self.config.max_age.total_seconds() / 3600:.0f} h)")
             else:
-                if refresh:
-                    self.engine.fetch.snapshot(dataset("courses"), priority=priority)
+                fingerprint = self._routes_fingerprint(data)
+                refreshed = False
+                if refresh is True or (refresh == "auto" and not self._courses_fresh(fingerprint)):
+                    self._refresh_courses(priority)
+                    refreshed = True
                 courses = plan_courses(self._garmin_courses(), data.starred_routes, self.config.course_consumers, self._course_links())
+                if not refreshed and self._would_delete(courses):
+                    self._refresh_courses(priority)
+                    courses = plan_courses(self._garmin_courses(), data.starred_routes, self.config.course_consumers, self._course_links())
+                self.engine.set_state(ROUTES_FP_STATE, fingerprint)
                 if courses.considered and not data.starred_routes:
-                    problems.append("course deletions refused: the snapshot lists no starred routes at all, which would delete every course Strava made")
+                    problems.append("course deletions refused: strava-mcp lists no starred routes at all, which would delete every course Strava made")
         return Planned(data, titles, courses, problems)
+
+    def _request_listing(self, plan: TitlePlan) -> int:
+        """Ask once per recent unmatched Strava activity for the Garmin activity listing, which is likely behind."""
+        cutoff = self._now() - LISTING_WINDOW
+        recent = {a.id for a in plan.unmatched if a.start >= cutoff}
+        done = set(json.loads(self.engine.get_state(LISTED_STATE) or "[]"))
+        new = recent - done
+        if new:
+            self.engine.enqueue("list_recent", "self", 10)
+        if new or done - recent:
+            self.engine.set_state(LISTED_STATE, json.dumps(sorted(recent & (done | new))))
+        return len(new)
 
     def plan(self, *, priority: Priority = "interactive") -> dict[str, Any]:
         """What a run would do now, with no write."""
@@ -134,7 +183,7 @@ class StravaSync:
     def _render(self, p: Planned) -> dict[str, Any]:
         out: dict[str, Any] = {"settings": self.config.describe(), "problems": p.problems}
         if p.data is not None:
-            out["snapshot"] = {
+            out["strava"] = {
                 "route_list_checked_at": p.data.routes_checked_at.isoformat() if p.data.routes_checked_at else None,
                 "activity_list_checked_at": p.data.activities_checked_at.isoformat() if p.data.activities_checked_at else None,
             }
@@ -165,10 +214,11 @@ class StravaSync:
         """One run. `manual` names the parts run on request: no per-run cap, and course deletions even in dry-run mode."""
         manual = manual or set()
         with self._lock:
-            p = self.compute(priority)
+            p = self.compute(priority, refresh=True if manual else "auto")
             summary: dict[str, Any] = {"at": self._now().isoformat(), "problems": list(p.problems), "manual": sorted(manual)}
             if p.titles is not None and (not manual or "titles" in manual):
                 summary["titles"] = self._apply_titles(p.titles, priority, capped="titles" not in manual)
+                summary["titles"]["listing_requested"] = self._request_listing(p.titles)
             if p.courses is not None and (not manual or "courses" in manual):
                 summary["courses"] = self._apply_courses(p.courses, priority, forced="courses" in manual, problems=p.problems)
             self.engine.set_state(LAST_STATE, json.dumps(summary, default=str))
@@ -256,7 +306,7 @@ class StravaSync:
                 pass
             self._log(str(d.course_id), "deleted_course", d.as_dict())
             out["deleted"].append(d.as_dict())
-        self.engine.fetch.snapshot(dataset("courses"), priority=priority)
+        self._refresh_courses(priority)
         return out
 
     # ------------------------------------------------------------- status

@@ -50,14 +50,15 @@ Off unless `STRAVA_SYNC` is set. See [Strava sync](strava-sync.md) for what it d
 | Variable | Default | Meaning |
 |---|---|---|
 | `STRAVA_SYNC` | unset (off) | `titles`, `courses`, or `titles,courses` (`all`) |
-| `STRAVA_SNAPSHOT` | unset | Required with `STRAVA_SYNC`: the path of a [strava-mcp](https://github.com/justmytwospence/strava-mcp) snapshot (`snapshot/strava.duckdb`, mounted read-only), or its `http(s)://…/snapshot.duckdb` URL |
-| `STRAVA_SNAPSHOT_TOKEN` | unset | Bearer token for a snapshot URL (strava-mcp's `SNAPSHOT_TOKEN`) |
+| `STRAVA_EXPORT_URL` | unset | [strava-mcp](https://github.com/justmytwospence/strava-mcp)'s live export, `http://<host>:8000/export/garmin-sync` (strava-mcp 4.2+). Set this or `STRAVA_SNAPSHOT` |
+| `STRAVA_SNAPSHOT` | unset | Instead of the export: the path of a strava-mcp snapshot (`snapshot/strava.duckdb`, mounted read-only), or its `http(s)://…/snapshot.duckdb` URL. Up to an hour behind |
+| `STRAVA_SNAPSHOT_TOKEN` | unset | Bearer token for the export or a snapshot URL (strava-mcp's `SNAPSHOT_TOKEN`) |
 | `STRAVA_SYNC_COURSES` | `dry-run` | `on` deletes orphaned Strava-made courses; `dry-run` only reports them |
 | `STRAVA_SYNC_TITLES_SINCE` | the day the sync first ran | Rename only activities that started on or after this date, `YYYY-MM-DD` |
 | `STRAVA_SYNC_MAX_RENAMES` | `20` | Renames per run; the rest wait for the next run |
 | `STRAVA_SYNC_MAX_DELETES` | `10` | Above this many orphans a run deletes nothing and reports it |
-| `STRAVA_SYNC_MAX_AGE_HOURS` | `48` | Course deletions are skipped when Strava's route list in the snapshot is older |
-| `STRAVA_SYNC_INTERVAL_MINUTES` | `15` | How often the engine runs the sync |
+| `STRAVA_SYNC_MAX_AGE_HOURS` | `48` | Course deletions are skipped when strava-mcp's route list is older |
+| `STRAVA_SYNC_INTERVAL_MINUTES` | `2` | How often the engine runs the sync (a run with nothing to do sends no Garmin request) |
 | `STRAVA_COURSE_CONSUMERS` | Strava's consumer id | Comma-separated Garmin consumer ids whose courses count as Strava-made |
 
 ## Compose-only

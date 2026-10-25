@@ -48,7 +48,9 @@ def test_config_is_off_by_default_and_validates():
     assert c is not None and c.parts == ["titles"] and c.courses_mode == "dry-run" and not c.is_url
     c = StravaSyncConfig.from_env({"STRAVA_SYNC": "all", "STRAVA_SNAPSHOT": "http://strava-mcp:8000/snapshot.duckdb", "STRAVA_SYNC_COURSES": "on", "STRAVA_SYNC_TITLES_SINCE": "2026-10-01"})
     assert c is not None and c.parts == ["titles", "courses"] and c.is_url and c.courses_mode == "on" and c.titles_since == date(2026, 10, 1)
-    for bad in ({"STRAVA_SYNC": "titles"}, {"STRAVA_SYNC": "maps", "STRAVA_SNAPSHOT": "x"}, {"STRAVA_SYNC": "courses", "STRAVA_SNAPSHOT": "x", "STRAVA_SYNC_COURSES": "yes"},
+    c = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": "http://strava-mcp:8000/export/garmin-sync", "STRAVA_SNAPSHOT_TOKEN": "t"})
+    assert c is not None and c.export_url and c.snapshot is None and c.describe()["source"] == "export" and c.interval == timedelta(minutes=2)
+    for bad in ({"STRAVA_SYNC": "titles"}, {"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_EXPORT_URL": "http://y"}, {"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": "strava-mcp:8000"}, {"STRAVA_SYNC": "maps", "STRAVA_SNAPSHOT": "x"}, {"STRAVA_SYNC": "courses", "STRAVA_SNAPSHOT": "x", "STRAVA_SYNC_COURSES": "yes"},
                 {"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_SYNC_TITLES_SINCE": "last week"}, {"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_SYNC_MAX_DELETES": "-1"}):
         with pytest.raises(ValueError):
             StravaSyncConfig.from_env(bad)
@@ -154,14 +156,14 @@ def make_snapshot(path: Path, *, routes: list[dict], activities: list[dict], rou
     con.execute("CREATE TABLE raw_latest (object_type VARCHAR, object_key VARCHAR, status VARCHAR, content_hash VARCHAR, fetched_at TIMESTAMPTZ, checked_at TIMESTAMPTZ)")
     con.execute("CREATE TABLE sync_state (name VARCHAR, value VARCHAR, updated_at TIMESTAMPTZ)")
     con.execute("CREATE TABLE route (id BIGINT, name VARCHAR, distance DOUBLE, starred BOOLEAN, summary_polyline VARCHAR)")
-    con.execute("CREATE TABLE activity (id BIGINT, name VARCHAR, start_date TIMESTAMPTZ, elapsed_time INTEGER, external_id VARCHAR)")
+    con.execute("CREATE TABLE activity (id BIGINT, name VARCHAR, start_date TIMESTAMPTZ, elapsed_time INTEGER, external_id VARCHAR, deleted_at TIMESTAMPTZ)")
     if route_list_checked is not None:
         con.execute("INSERT INTO raw_latest VALUES ('route_list', 'self', 'ok', 'h', ?, ?)", [route_list_checked, route_list_checked])
     con.execute("INSERT INTO sync_state VALUES ('last:list_recent', '2026-10-25T10:26:35.424Z', now())")
     for r in routes:
         con.execute("INSERT INTO route VALUES (?, ?, ?, ?, ?)", [r["id"], r["name"], r["distance"], r.get("starred", True), r.get("polyline")])
     for a in activities:
-        con.execute("INSERT INTO activity VALUES (?, ?, ?, ?, ?)", [a["id"], a["name"], a["start"], 3600, f"garmin_ping_{a['id']}"])
+        con.execute("INSERT INTO activity VALUES (?, ?, ?, ?, ?, ?)", [a["id"], a["name"], a["start"], 3600, f"garmin_ping_{a['id']}", a.get("deleted_at")])
     con.close()
 
 
@@ -200,9 +202,11 @@ class World:
         self.db.run("DELETE FROM sync_job")
         self.snapshot_path = self.tmp / "strava.duckdb"
         cfg_env = {"STRAVA_SYNC": "titles,courses", "STRAVA_SNAPSHOT": str(self.snapshot_path), "STRAVA_SYNC_TITLES_SINCE": "2026-10-01", **(env or {})}
+        if "STRAVA_EXPORT_URL" in cfg_env:
+            del cfg_env["STRAVA_SNAPSHOT"]
         self.config = StravaSyncConfig.from_env(cfg_env)
         assert self.config is not None
-        self.sync = StravaSync(self.db, self.engine, self.config, source=StravaSnapshot(self.config))
+        self.sync = StravaSync(self.db, self.engine, self.config)
         self.engine.strava_sync = self.sync
         self.mirror = Mirror(self.db, self.engine, self.client)
 
@@ -388,3 +392,117 @@ def test_tools_absent_when_disabled():
         assert db.one("SELECT count(*) AS n FROM sync_job WHERE kind = 'strava_sync'")["n"] == 0
     finally:
         db.close()
+
+
+# ----------------------------------------------------------------- live export, refresh economy, listing trigger
+
+
+class ExportServer:
+    """A stand-in for strava-mcp's GET /export/garmin-sync."""
+
+    def __init__(self, token: str = "secret") -> None:
+        import http.server
+        import threading
+
+        self.token = token
+        self.body: dict[str, Any] = {"route_list_checked_at": datetime.now(UTC).isoformat(), "activity_list_checked_at": None, "starred_routes": [], "activities": []}
+        self.requests: list[tuple[str, str | None]] = []
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                outer.requests.append((self.path, self.headers.get("Authorization")))
+                if self.headers.get("Authorization") != f"Bearer {outer.token}":
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                data = json.dumps(outer.body).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/export/garmin-sync"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+
+
+def test_export_source_reads_strava_mcp():
+    srv = ExportServer()
+    try:
+        cfg = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles,courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret"})
+        srv.body["starred_routes"] = [{"id": "3548464556455591588", "name": "Gray Butte", "distance": 10000.5, "start": [44.4, -121.1]}, {"id": "7", "name": "No map", "distance": None, "start": None}]
+        srv.body["activities"] = [{"id": "20717784937", "name": "Maize", "start_date": "2026-10-24T21:00:00.000Z", "elapsed_time": 900}]
+        from garmin_mcp.strava_sync.source import SourceUnavailable, StravaExport
+
+        data = StravaExport(cfg).read(datetime(2026, 10, 1, tzinfo=UTC))
+        assert [r.id for r in data.starred_routes] == [3548464556455591588, 7] and data.starred_routes[0].start == (44.4, -121.1)
+        assert data.activities[0].start == datetime(2026, 10, 24, 21, 0, tzinfo=UTC) and data.activities[0].name == "Maize"
+        assert "since=2026-10-01" in srv.requests[-1][0] and srv.requests[-1][1] == "Bearer secret"
+        bad = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "wrong"})
+        with pytest.raises(SourceUnavailable, match="401"):
+            StravaExport(bad).read(None)
+        srv.body = {"unexpected": True}
+        with pytest.raises(SourceUnavailable, match="shape"):
+            StravaExport(cfg).read(None)
+    finally:
+        srv.close()
+
+
+def course_list_requests(w: World) -> int:
+    return sum(1 for m, p, _ in w.transport.calls if m == "GET" and p.startswith("/course-service/course/owner/"))
+
+
+def test_course_list_is_fetched_only_when_it_could_matter():
+    srv = ExportServer()
+    w = World({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret"},
+              courses=[garmin_course(10, "Gray Butte", 10000.0, 44.4, -121.1), garmin_course(11, "Unstarred", 8000.0, 44.2, -121.2)])
+    try:
+        w.sync.config = StravaSyncConfig.from_env({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret"})
+        srv.body["starred_routes"] = [{"id": "1", "name": "Gray Butte", "distance": 10000.0, "start": [44.4, -121.1]}, {"id": "2", "name": "Unstarred", "distance": 8000.0, "start": [44.2, -121.2]}]
+        w.sync.run()
+        assert course_list_requests(w) == 1
+        w.sync.run()
+        w.sync.run()
+        assert course_list_requests(w) == 1, "nothing changed on Strava: plan from the mirror"
+        srv.body["starred_routes"] = srv.body["starred_routes"][:1]  # unstarred on Strava
+        r = w.sync.run()
+        assert course_list_requests(w) == 2 and r["courses"]["orphaned"] == 1 and w.deletes() == []  # dry-run
+        w.sync._now = lambda: datetime.now(UTC) + timedelta(hours=2)
+        w.sync.run()
+        assert course_list_requests(w) == 3, "an hour-old course list is re-fetched"
+        # deletions always act on a fresh list
+        w.sync._now = lambda: datetime.now(UTC)
+        w.sync.config = StravaSyncConfig.from_env({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret", "STRAVA_SYNC_COURSES": "on"})
+        before = course_list_requests(w)
+        r = w.sync.run()
+        assert w.deletes() == ["/course-service/course/11"] and course_list_requests(w) == before + 2  # before deciding, after deleting
+    finally:
+        w.close()
+        srv.close()
+
+
+def test_recent_unmatched_strava_activity_asks_for_the_listing_once(world):
+    world.sync._now = lambda: datetime(2026, 10, 25, 18, 0, tzinfo=UTC)
+    world.snapshot(activities=[{"id": 50, "name": "Just uploaded", "start": datetime(2026, 10, 25, 16, 0, tzinfo=UTC)},
+                               {"id": 51, "name": "Old Wahoo ride", "start": datetime(2026, 10, 20, 16, 0, tzinfo=UTC)}])
+    r = world.sync.run()
+    assert r["titles"]["listing_requested"] == 1
+    assert world.db.one("SELECT priority FROM sync_job WHERE kind = 'list_recent'")["priority"] == 10
+    world.db.run("DELETE FROM sync_job")
+    r = world.sync.run()
+    assert r["titles"]["listing_requested"] == 0 and world.db.one("SELECT count(*) AS n FROM sync_job WHERE kind = 'list_recent'")["n"] == 0
+
+
+def test_deleted_strava_activities_are_ignored(world):
+    a = world.garmin_activities()[-1]
+    world.snapshot(activities=[{"id": 1, "name": "Deleted on Strava", "start": a["start_time_gmt"], "deleted_at": datetime.now(UTC)}])
+    r = world.sync.run()
+    assert r["titles"]["renamed"] == [] and world.puts() == []

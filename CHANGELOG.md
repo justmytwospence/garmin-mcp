@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- The Strava sync can read strava-mcp's live export (`STRAVA_EXPORT_URL`, strava-mcp 4.2+) instead of its hourly snapshot, and runs every 2 minutes (was 15): a rename on Strava reaches Garmin in about 2 minutes, an unstarred route's course goes within about 17. A run with nothing to do sends no Garmin request; the course list is fetched when the starred routes change, before any deletion, and otherwise hourly. A just-named Strava activity the mirror has not listed yet asks for the activity listing once.
+- The Strava sync ignores activities deleted on Strava.
+
 ## [1.1.0] - 2026-10-25
 
 ### Added

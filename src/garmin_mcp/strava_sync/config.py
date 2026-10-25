@@ -1,8 +1,10 @@
 """Settings of the optional Strava sync, read from the environment.
 
 The feature is off unless STRAVA_SYNC names at least one part (titles, courses). It
-reads Strava data from a strava-mcp snapshot (a file path or an http(s) URL), never
-from Strava itself, so it needs no Strava credentials of its own.
+reads Strava data from strava-mcp, never from Strava itself, so it needs no Strava
+credentials of its own: from its live export (STRAVA_EXPORT_URL, GET
+/export/garmin-sync, fresh to the minute) or from its snapshot (STRAVA_SNAPSHOT, a
+file path or an http(s) URL, republished at most hourly).
 """
 
 from __future__ import annotations
@@ -24,14 +26,15 @@ CoursesMode = Literal["dry-run", "on"]
 class StravaSyncConfig:
     titles: bool
     courses: bool
-    snapshot: str
+    snapshot: str | None
     token: str | None = None
+    export_url: str | None = None
     courses_mode: CoursesMode = "dry-run"
     titles_since: date | None = None
     max_renames: int = 20
     max_deletes: int = 10
     max_age: timedelta = timedelta(hours=48)
-    interval: timedelta = timedelta(minutes=15)
+    interval: timedelta = timedelta(minutes=2)
     course_consumers: frozenset[str] = field(default_factory=lambda: STRAVA_COURSE_CONSUMERS)
 
     @property
@@ -40,17 +43,22 @@ class StravaSyncConfig:
 
     @property
     def is_url(self) -> bool:
-        return self.snapshot.startswith(("http://", "https://"))
+        return bool(self.snapshot and self.snapshot.startswith(("http://", "https://")))
+
+    @property
+    def source(self) -> str:
+        return self.export_url or self.snapshot or ""
 
     def describe(self) -> dict[str, object]:
         return {
             "parts": self.parts,
-            "snapshot": self.snapshot,
+            "source": "export" if self.export_url else "snapshot",
+            "location": self.source,
             "courses_mode": self.courses_mode,
             "titles_since": self.titles_since.isoformat() if self.titles_since else None,
             "max_renames_per_run": self.max_renames,
             "max_deletes_per_run": self.max_deletes,
-            "max_snapshot_age_hours": self.max_age.total_seconds() / 3600,
+            "max_route_list_age_hours": self.max_age.total_seconds() / 3600,
             "interval_minutes": self.interval.total_seconds() / 60,
         }
 
@@ -67,9 +75,14 @@ class StravaSyncConfig:
         unknown = parts - set(PARTS)
         if unknown:
             raise ValueError(f"STRAVA_SYNC: unknown part(s) {', '.join(sorted(unknown))}; use a comma list of {', '.join(PARTS)}")
-        snapshot = (env.get("STRAVA_SNAPSHOT") or "").strip()
-        if not snapshot:
-            raise ValueError("STRAVA_SYNC is set but STRAVA_SNAPSHOT is not: give the path or URL of a strava-mcp snapshot (strava.duckdb)")
+        snapshot = (env.get("STRAVA_SNAPSHOT") or "").strip() or None
+        export_url = (env.get("STRAVA_EXPORT_URL") or "").strip() or None
+        if not snapshot and not export_url:
+            raise ValueError("STRAVA_SYNC is set but neither STRAVA_EXPORT_URL (strava-mcp's /export/garmin-sync) nor STRAVA_SNAPSHOT (its snapshot) is")
+        if snapshot and export_url:
+            raise ValueError("set one of STRAVA_EXPORT_URL and STRAVA_SNAPSHOT, not both")
+        if export_url and not export_url.startswith(("http://", "https://")):
+            raise ValueError(f"STRAVA_EXPORT_URL must be an http(s) URL, got {export_url!r}")
         mode = (env.get("STRAVA_SYNC_COURSES") or "dry-run").strip().lower()
         if mode not in ("dry-run", "on"):
             raise ValueError(f'STRAVA_SYNC_COURSES must be "dry-run" or "on", got "{mode}"')
@@ -83,13 +96,14 @@ class StravaSyncConfig:
             titles="titles" in parts,
             courses="courses" in parts,
             snapshot=snapshot,
+            export_url=export_url,
             token=(env.get("STRAVA_SNAPSHOT_TOKEN") or "").strip() or None,
             courses_mode=mode,  # type: ignore[arg-type]
             titles_since=since,
             max_renames=_int(env, "STRAVA_SYNC_MAX_RENAMES", 20),
             max_deletes=_int(env, "STRAVA_SYNC_MAX_DELETES", 10),
             max_age=timedelta(hours=_int(env, "STRAVA_SYNC_MAX_AGE_HOURS", 48)),
-            interval=timedelta(minutes=_int(env, "STRAVA_SYNC_INTERVAL_MINUTES", 15)),
+            interval=timedelta(minutes=max(1, _int(env, "STRAVA_SYNC_INTERVAL_MINUTES", 2))),
             course_consumers=frozenset(consumers) or STRAVA_COURSE_CONSUMERS,
         )
 

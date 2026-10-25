@@ -80,6 +80,8 @@ class TitlePlan:
     # Garmin name edited by hand since the sync set it: left alone until Strava changes again.
     conflicts: list[Rename] = field(default_factory=list)
     skipped: dict[str, int] = field(default_factory=dict)
+    # Strava activities with no Garmin activity in the mirror (yet): a recent one means the mirror's listing is behind.
+    unmatched: list[StravaActivity] = field(default_factory=list)
 
     def skip(self, reason: str) -> None:
         self.skipped[reason] = self.skipped.get(reason, 0) + 1
@@ -106,6 +108,7 @@ def pair_activities(strava: list[StravaActivity], garmin: list[GarminActivity], 
         found = candidates[s.id]
         if not found:
             plan.skip("no_garmin_activity")
+            plan.unmatched.append(s)
         elif len(found) > 1 or claims[found[0].id] > 1:
             plan.skip("ambiguous_match")
         else:

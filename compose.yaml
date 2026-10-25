@@ -33,8 +33,9 @@ services:
       # First-login fallback for accounts without MFA only; garmin-mcp-auth is the normal way.
       GARMIN_EMAIL: ${GARMIN_EMAIL:-}
       GARMIN_PASSWORD: ${GARMIN_PASSWORD:-}
-      # Optional Strava sync from a strava-mcp snapshot (docs/strava-sync.md); off unless set.
+      # Optional Strava sync from strava-mcp (docs/strava-sync.md); off unless set.
       STRAVA_SYNC: ${STRAVA_SYNC:-}
+      STRAVA_EXPORT_URL: ${STRAVA_EXPORT_URL:-}
       STRAVA_SNAPSHOT: ${STRAVA_SNAPSHOT:-}
       STRAVA_SNAPSHOT_TOKEN: ${STRAVA_SNAPSHOT_TOKEN:-}
       STRAVA_SYNC_COURSES: ${STRAVA_SYNC_COURSES:-dry-run}

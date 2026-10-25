@@ -45,6 +45,6 @@ def register(reg: Registry) -> None:
             raise ToolFailure(f"the {part} part is not enabled (STRAVA_SYNC={','.join(sync.config.parts)})")
         if not confirm:
             plan = sync.plan()
-            preview = {k: v for k, v in plan.items() if k in ("settings", "problems", "snapshot", part)}
+            preview = {k: v for k, v in plan.items() if k in ("settings", "problems", "strava", part)}
             return {"status": "needs_confirmation", "preview": preview, "message": "Call again with confirm=true to apply this part now (no per-run cap)."}
         return WriteResult(sync.run(priority="interactive", manual={part}))
