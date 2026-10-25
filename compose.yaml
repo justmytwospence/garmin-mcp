@@ -20,36 +20,15 @@ services:
   garmin-mcp:
     image: ghcr.io/justmytwospence/garmin-mcp:${GARMIN_MCP_VERSION:-1}
     restart: unless-stopped
+    # Every setting comes from .env (see .env.example, which lists each one with its
+    # default). A line left commented out there keeps the image's default; the image
+    # sets DUCKDB_MEMORY_LIMIT=512MB and DUCKDB_THREADS=2 (docs/operations.md) and keeps
+    # the mirror, tokens and downloads under /data. docs/configuration.md explains each.
+    env_file:
+      - .env
     environment:
       # Required: the bearer token MCP clients send (openssl rand -hex 32).
       MCP_BEARER_TOKEN: ${MCP_BEARER_TOKEN:?set MCP_BEARER_TOKEN in .env (openssl rand -hex 32)}
-      # Optional: serve the read-only snapshot at GET /snapshot.duckdb to this bearer token.
-      SNAPSHOT_TOKEN: ${SNAPSHOT_TOKEN:-}
-      # Hostnames clients may use (behind a reverse proxy); DNS-rebinding protection when set.
-      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
-      GARMIN_IS_CN: ${GARMIN_IS_CN:-false}
-      GARMIN_HISTORY_START: ${GARMIN_HISTORY_START:-}
-      GARMIN_SYNC: ${GARMIN_SYNC:-on}
-      # First-login fallback for accounts without MFA only; garmin-mcp-auth is the normal way.
-      GARMIN_EMAIL: ${GARMIN_EMAIL:-}
-      GARMIN_PASSWORD: ${GARMIN_PASSWORD:-}
-      # Optional Strava sync from strava-mcp (docs/strava-sync.md); off unless set.
-      STRAVA_SYNC: ${STRAVA_SYNC:-}
-      STRAVA_EXPORT_URL: ${STRAVA_EXPORT_URL:-}
-      STRAVA_SNAPSHOT: ${STRAVA_SNAPSHOT:-}
-      STRAVA_SNAPSHOT_TOKEN: ${STRAVA_SNAPSHOT_TOKEN:-}
-      STRAVA_SYNC_COURSES: ${STRAVA_SYNC_COURSES:-dry-run}
-      STRAVA_SYNC_TITLES_SINCE: ${STRAVA_SYNC_TITLES_SINCE:-}
-      # Tool selection (all tools by default).
-      GARMIN_TOOL_PROFILE: ${GARMIN_TOOL_PROFILE:-}
-      GARMIN_ENABLED_TOOLS: ${GARMIN_ENABLED_TOOLS:-}
-      GARMIN_DISABLED_TOOLS: ${GARMIN_DISABLED_TOOLS:-}
-      GARMIN_MCP_CHARACTER_LIMIT: ${GARMIN_MCP_CHARACTER_LIMIT:-60000}
-      GARMIN_FIT_DOWNLOAD_DIR: ${GARMIN_FIT_DOWNLOAD_DIR:-}
-      # DuckDB sizes itself to 80% of host RAM without a limit; see docs/operations.md.
-      DUCKDB_MEMORY_LIMIT: ${DUCKDB_MEMORY_LIMIT:-512MB}
-      DUCKDB_THREADS: ${DUCKDB_THREADS:-2}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - garmin-data:/data
     ports:
@@ -80,7 +59,8 @@ services:
     depends_on:
       - garmin-mcp
     environment:
-      # All three must be set in .env; agentgateway refuses to start with an empty value.
+      # OIDC_ISSUER, OIDC_JWKS_URL and PUBLIC_URL must be set in .env (agentgateway refuses to
+      # start with an empty value); OIDC_CLIENT_ID defaults to garmin-mcp.
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-garmin-mcp}
