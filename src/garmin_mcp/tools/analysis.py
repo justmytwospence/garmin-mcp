@@ -15,7 +15,7 @@ from xml.sax.saxutils import escape
 
 from ..fit.decode import decode_messages, unpack
 from ..mirror import GarminNotFound, Provenance, note_provenance
-from .base import NoData, DESTRUCTIVE, READ, WRITE, Registry, ToolFailure, WriteResult, activity_key, drop_none
+from .base import DESTRUCTIVE, READ, WRITE, NoData, Registry, ToolFailure, WriteResult, activity_key, drop_none
 from .fit_analysis import (
     _PDC_LABELS,
     _compute_hr_drift,

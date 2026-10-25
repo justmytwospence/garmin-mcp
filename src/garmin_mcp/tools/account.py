@@ -10,7 +10,7 @@ from typing import Any
 
 from ..garmin.datasets import dataset
 from ..mirror import GarminNotFound, Provenance, note_provenance
-from .base import NoData, DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, Registry, ToolFailure, WriteResult, activity_key, drop_none, parse_date, parse_range
+from .base import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, NoData, Registry, ToolFailure, WriteResult, activity_key, drop_none, parse_date, parse_range
 from .challenge_support import (
     ADHOC_ACTIVITY_TYPE_MAPPING,
     BADGE_CATEGORY_MAPPING,

@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
-from fitgen import activity_fit, wellness_fit  # noqa: E402
-
 from garmin_mcp.garmin.client import NotFound, RateLimited, Response, Unavailable  # noqa: E402
-from garmin_mcp.garmin.datasets import ACTIVITY_FIT_PATH, ACTIVITY_LIST_PATH, BY_NAME, RELOAD_PATH, WELLNESS_FIT_PATH  # noqa: E402
+from garmin_mcp.garmin.datasets import ACTIVITY_LIST_PATH, BY_NAME  # noqa: E402
+
+from fitgen import activity_fit, wellness_fit  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures" / "payloads.json"
 DISPLAY_NAME = "display-name-fixture"

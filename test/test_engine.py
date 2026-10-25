@@ -9,10 +9,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from fake import FakeTransport, FlakyTransport, RateLimitedTransport
 
 from garmin_mcp.garmin.client import AuthError, GarminClient, RateLimited
 from garmin_mcp.sync.engine import RELOADS_PER_DAY, SyncEngine
+
+from fake import FakeTransport, FlakyTransport, RateLimitedTransport
 
 
 def make_engine(transport=None, **kw):

@@ -4,11 +4,10 @@ parsed GPX. Vendored from Taxuspt/garmin_mcp (MIT), activity_management.py and c
 
 from __future__ import annotations
 
-import datetime
 import math
-import os
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
+
 
 def _build_exercise_sets(sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Convert friendly set dicts into Garmin's exerciseSets wire format.

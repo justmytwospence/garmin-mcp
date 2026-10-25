@@ -7,14 +7,14 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from fitgen import activity_fit, wellness_fit
-
 from garmin_mcp.db.projections import PROJECTIONS, drift, rebuild_all
 from garmin_mcp.db.raw import land, land_many, mark_not_found
 from garmin_mcp.db.tables import TABLES
 from garmin_mcp.fit.decode import land_fit
 from garmin_mcp.fit.tables import FIT_TABLES
 from garmin_mcp.garmin.datasets import DATASETS
+
+from fitgen import activity_fit, wellness_fit
 
 
 def count(db, table: str, where: str = "true") -> int:

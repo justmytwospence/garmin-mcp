@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from ..mirror import GarminNotFound, Provenance, note_provenance
-from .base import NoData, READ, Registry, ToolFailure, drop_none, iso_days, parse_date, parse_range
+from .base import READ, NoData, Registry, drop_none, iso_days, parse_date, parse_range
 
 
 def _hours_from_recovery_minutes(minutes: Any, phrase: Any = None) -> float | None:
@@ -425,7 +425,7 @@ def register(reg: Registry) -> None:
         Args:
             date: Date in YYYY-MM-DD format
         """
-        d = parse_date(date)
+        parse_date(date)
         chunks = m.chunks("wellness_metrics", date, date).data
         values = []
         for c in chunks:

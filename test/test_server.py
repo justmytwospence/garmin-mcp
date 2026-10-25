@@ -14,7 +14,6 @@ from pathlib import Path
 import duckdb
 import httpx
 import pytest
-from fake import FakeTransport
 
 from garmin_mcp.garmin.client import GarminClient
 from garmin_mcp.http import bearer_matches, build_app
@@ -25,6 +24,8 @@ from garmin_mcp.sync.engine import SyncEngine
 from garmin_mcp.tools.base import ToolFilter
 from garmin_mcp.tools.mirror_tools import ReadOnlyQuery
 from garmin_mcp.tools.profiles import TOOL_PROFILES
+
+from fake import FakeTransport
 
 
 class World:

@@ -6,7 +6,6 @@ Vendored from Taxuspt/garmin_mcp (MIT), src/garmin_mcp/challenges.py.
 import datetime
 from typing import Any, Dict, List
 
-
 # Badge category mappings
 # This list is estimated based on real data, the mapping might not be 100% accurate
 BADGE_CATEGORY_MAPPING = {

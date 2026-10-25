@@ -573,7 +573,7 @@ sens = T("sensor")
 add("sensors", ["DELETE FROM sensor", insert(sens, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('sensors')}) src")], [Shape(sampled("sensors", "$[*]"), known(sens))])
 
 gear = T("gear")
-GEAR_SOURCE = f"""(
+GEAR_SOURCE = """(
   SELECT g.fetched_at, g.b, s.body AS stats
   FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM (SELECT * FROM raw_current WHERE object_type = 'gear' AND body IS NOT NULL) r) g
   LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'gear_stats' AND body IS NOT NULL) s ON s.object_key = (g.b->>'uuid')
@@ -617,7 +617,7 @@ for _t, _kind in (("user_goals", "user"), ("goals_active", "active"), ("goals_pa
     )
 
 wk = T("workout")
-WORKOUT_SOURCE = f"""(
+WORKOUT_SOURCE = """(
   SELECT w.fetched_at, w.b, d.body AS detail
   FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM (SELECT * FROM raw_current WHERE object_type = 'workouts' AND body IS NOT NULL) r) w
   LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'workout' AND body IS NOT NULL) d ON d.object_key = (w.b->>'workoutId')
@@ -636,7 +636,7 @@ add(
 )
 
 course = T("course")
-COURSE_SOURCE = f"""(
+COURSE_SOURCE = """(
   SELECT c.fetched_at, c.b, d.body AS detail, d.checked_at AS detail_fetched_at
   FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM (SELECT * FROM raw_current WHERE object_type = 'courses' AND body IS NOT NULL) r) c
   LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'course' AND body IS NOT NULL) d ON d.object_key = (c.b->>'courseId')

@@ -7,8 +7,8 @@ temperature_c, timestamp), which fit/analysis builds from the mirror's fit_recor
 """
 
 import datetime
-import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+
 
 def _decode_gear_change(data: int) -> dict:
     """Decode a packed gear_change_data uint32 from a Di2 shift event.

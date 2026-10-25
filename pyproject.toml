@@ -42,7 +42,7 @@ garmin-mcp = "garmin_mcp.cli:main"
 garmin-mcp-auth = "garmin_mcp.auth_cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx"]
+dev = ["pytest>=8", "httpx", "ruff"]
 docs = ["mkdocs-material==9.7.7"]
 
 [tool.uv]
@@ -64,3 +64,31 @@ include = ["src/garmin_mcp", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
+
+[tool.ruff]
+target-version = "py312"
+# Long lines are the house style (one statement per line, however long); ruff format is not used.
+line-length = 200
+src = ["src", "test", "scripts"]
+
+[tool.ruff.lint]
+# F: pyflakes (unused imports and variables, undefined names). I: import order. UP: modern syntax.
+select = ["F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Modules vendored from Taxuspt/garmin_mcp keep upstream's style so they stay diffable against it.
+"src/garmin_mcp/tools/challenge_support.py" = ["UP"]
+"src/garmin_mcp/tools/fit_analysis.py" = ["UP"]
+"src/garmin_mcp/tools/nutrition.py" = ["UP"]
+"src/garmin_mcp/tools/payloads.py" = ["UP"]
+"src/garmin_mcp/tools/workout_builders.py" = ["UP"]
+"src/garmin_mcp/tools/workout_support.py" = ["UP"]
+"src/garmin_mcp/tools/workout_templates.py" = ["UP"]
+"src/garmin_mcp/tools/write_errors.py" = ["UP"]
+# Test helpers put the test directory on sys.path before importing from it.
+"test/*.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["garmin_mcp"]
+# The test helpers next to the tests (test/conftest.py puts the directory on sys.path).
+known-local-folder = ["conftest", "fake", "fitgen"]

@@ -14,7 +14,6 @@ from typing import Any
 
 import duckdb
 import pytest
-from fake import FakeTransport
 
 from garmin_mcp.garmin.client import GarminClient, Response
 from garmin_mcp.mirror import Mirror
@@ -30,8 +29,10 @@ from garmin_mcp.strava_sync.reconcile import (
     plan_courses,
     plan_titles,
 )
-from garmin_mcp.strava_sync.source import StravaActivity, StravaRoute, StravaSnapshot, polyline_start
+from garmin_mcp.strava_sync.source import StravaActivity, StravaRoute, polyline_start
 from garmin_mcp.sync.engine import SyncEngine
+
+from fake import FakeTransport
 
 STRAVA = next(iter(STRAVA_COURSE_CONSUMERS))
 OTHER = "fe4c3a94-87c9-4bab-b4a1-977467cfa4b4"

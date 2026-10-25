@@ -7,6 +7,7 @@ import logging
 
 from mcp.server.mcpserver import MCPServer
 
+from . import __version__ as VERSION
 from .mirror import Mirror
 from .tools import Registry, register_all
 from .tools.base import ToolFilter
@@ -14,7 +15,6 @@ from .tools.base import ToolFilter
 log = logging.getLogger("garmin_mcp.server")
 
 SERVER_NAME = "garmin-mcp"
-from . import __version__ as VERSION  # noqa: E402
 INSTRUCTIONS = (
     "Garmin Connect data for one user, answered from a local DuckDB mirror that a background sync keeps complete. "
     "Tool results end with a provenance line (served from the mirror and when it was fetched, fetched just now, or stale and why). "

@@ -5,21 +5,6 @@ normalization, the target/end-condition checks Garmin would otherwise silently
 mis-save, and the curated summaries of workouts and scheduled workouts.
 """
 
-import datetime
-import re
-from typing import Any, Dict, List, Optional
-
-def _validate_date(value: str, field: str = "date") -> str:
-    # fullmatch, because match() with $ lets a trailing newline through.
-    # fromisoformat rejects dates that don't exist (2026-02-30) but on 3.11+
-    # also accepts other ISO forms (20261014), so it can't replace the regex.
-    if isinstance(value, str) and _DATE_RE.fullmatch(value):
-        try:
-            datetime.date.fromisoformat(value)
-            return value
-        except ValueError:
-            pass
-    raise ValueError(f"Invalid {field} {value!r}: expected YYYY-MM-DD")
 
 END_CONDITION_TYPE_IDS = {
     "lap.button": 1,

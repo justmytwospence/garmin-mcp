@@ -11,7 +11,7 @@ import duckdb
 from ..db.projections import drift
 from ..garmin.client import auth_fix
 from ..mirror import Mirror, Provenance, jsonable, note_provenance
-from .base import NoData, READ, Registry, ToolFailure
+from .base import READ, NoData, Registry, ToolFailure
 
 QUERY_TIMEOUT_S = 30.0
 MAX_ROWS = 5000

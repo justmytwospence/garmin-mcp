@@ -11,14 +11,13 @@ by renaming a new file over it, so it is attached afresh on every read.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
-
 import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
 import duckdb

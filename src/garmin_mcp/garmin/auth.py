@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .client import AUTH_COMMAND, AUTH_COMMAND_LOCAL, RESTART_COMMAND, AuthError, GarminConnectTransport, Response, Transport, Unavailable, auth_fix
+from .client import AUTH_COMMAND, AUTH_COMMAND_LOCAL, AuthError, GarminConnectTransport, Response, Transport, Unavailable, auth_fix
 
 log = logging.getLogger("garmin_mcp.auth")
 

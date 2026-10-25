@@ -3,11 +3,11 @@ computed from the mirror's typed tables after the days involved are ensured fres
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any, Literal
 
 from ..mirror import GarminNotFound, Provenance, note_provenance
-from .base import NoData, READ, WRITE, Registry, ToolFailure, WriteResult, activity_key, drop_none, parse_date, parse_range
+from .base import READ, WRITE, NoData, Registry, ToolFailure, WriteResult, activity_key, drop_none, parse_date, parse_range
 
 PROGRESS_CALORIES_FACTOR = 4.19
 CM_PER_MS_TO_MPS = 10
