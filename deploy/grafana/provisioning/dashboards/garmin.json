@@ -834,7 +834,7 @@
             "uid": "garmin"
           },
           "refId": "A",
-          "rawSql": "SELECT max(checked_at)::TIMESTAMP AS \"last fetch\" FROM raw_latest",
+          "rawSql": "SELECT date_diff('second', max(checked_at), now()) AS age FROM raw_latest",
           "format": 1,
           "editorMode": "code",
           "rawQuery": true
@@ -843,7 +843,25 @@
       "fieldConfig": {
         "defaults": {
           "custom": {},
-          "unit": "dateTimeFromNow"
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 7200
+              },
+              {
+                "color": "red",
+                "value": 86400
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -859,7 +877,7 @@
         "graphMode": "none",
         "textMode": "value"
       },
-      "description": "When the server last fetched anything from Garmin, as of this snapshot."
+      "description": "Time since the newest fetch in the snapshot: how far behind Garmin Connect the data shown here is."
     },
     {
       "id": 16,
@@ -1083,7 +1101,16 @@
       "fieldConfig": {
         "defaults": {
           "custom": {},
-          "unit": "short"
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -1130,7 +1157,16 @@
       "fieldConfig": {
         "defaults": {
           "custom": {},
-          "unit": "short"
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
