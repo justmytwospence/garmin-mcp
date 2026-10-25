@@ -442,7 +442,7 @@ wheels = [
 ]
 
 [[package]]
-name = "garmin-mcp"
+name = "garmin-mirror-mcp"
 version = "1.2.0"
 source = { editable = "." }
 dependencies = [
