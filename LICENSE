@@ -19,10 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Portions of src/garmin_mcp/tools (tool definitions and descriptions, the workout
-builders, templates and validators, the FIT analyses, the challenge mappings and
-the nutrition tools) are adapted or vendored from Taxuspt/garmin_mcp,
-Copyright (c) 2025 Alexandre Domingues, under the same MIT License.

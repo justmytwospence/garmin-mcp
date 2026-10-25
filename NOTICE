@@ -1,0 +1,25 @@
+garmin-mirror-mcp
+Copyright (c) 2026 Spencer Boucher
+Licensed under the MIT License (see LICENSE).
+
+This product includes software adapted or vendored from Taxuspt/garmin_mcp
+(https://github.com/Taxuspt/garmin_mcp), Copyright (c) 2025 Alexandre Domingues,
+under the MIT License:
+
+  - the tool names, parameters and descriptions, so clients written for it keep working
+  - src/garmin_mcp/tools/challenge_support.py (badge, challenge, goal and record mappings)
+  - src/garmin_mcp/tools/fit_analysis.py (the FIT record analyses)
+  - src/garmin_mcp/tools/nutrition.py (nutrition and women's health tools)
+  - src/garmin_mcp/tools/payloads.py (course payload builders)
+  - src/garmin_mcp/tools/profiles.py (tool profiles)
+  - src/garmin_mcp/tools/workout_builders.py, workout_support.py, workout_templates.py
+    (workout builders, validators and templates)
+  - src/garmin_mcp/tools/write_errors.py (structured write errors)
+
+Garmin Connect access goes through python-garminconnect
+(https://github.com/cyberjunky/python-garminconnect, MIT) and FIT decoding through
+Garmin's FIT SDK (https://developer.garmin.com/fit/, FIT Protocol License Agreement).
+
+Garmin and Garmin Connect are trademarks of Garmin Ltd. or its subsidiaries. This
+project is not affiliated with, endorsed by or supported by Garmin. Strava is a
+trademark of Strava, Inc.; the optional Strava sync is likewise unaffiliated.
