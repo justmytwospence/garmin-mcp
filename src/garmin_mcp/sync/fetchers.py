@@ -25,6 +25,7 @@ from ..garmin.datasets import (
     RELOAD_PATH,
     WELLNESS_FIT_PATH,
     Dataset,
+    compact_json,
     dataset,
     days_between,
 )
@@ -38,10 +39,6 @@ PAGE = 100
 class FetchResult:
     changed: bool
     not_found: bool = False
-
-
-def _dumps(v: Any) -> str:
-    return json.dumps(v, separators=(",", ":"), ensure_ascii=False)
 
 
 def _empty(text: str | None) -> bool:
@@ -147,7 +144,7 @@ class Fetchers:
             items = json.loads(text) if not _empty(text) else []
             if not items:
                 break
-            keyed = [(str(a["activityId"]), _dumps(a)) for a in items if isinstance(a, dict) and a.get("activityId")]
+            keyed = [(str(a["activityId"]), compact_json(a)) for a in items if isinstance(a, dict) and a.get("activityId")]
             known = set()
             if stop_when_known and not complete:
                 ids = [k for k, _ in keyed]
@@ -245,7 +242,7 @@ class Fetchers:
         with self.db.transaction() as tx:
             tx.run(
                 "INSERT INTO reload_request (calendar_date, requested_at, status, response) VALUES (?, ?, ?, ?::JSON)",
-                [day, at, status or "unknown", _dumps(body)],
+                [day, at, status or "unknown", compact_json(body)],
             )
         return {"status": status, "response": body}
 

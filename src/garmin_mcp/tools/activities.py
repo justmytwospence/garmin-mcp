@@ -3,7 +3,7 @@ dataset come from the mirror; edits go to Garmin and the activity is re-fetched.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from ..mirror import GarminNotFound, Provenance, note_provenance
@@ -530,7 +530,7 @@ def register(reg: Registry) -> None:
             m.engine.run_job("list_full", "self", 5)
 
         m.write("DELETE", f"{ACTIVITY_URL}/{key}", refetch=refetch)
-        return WriteResult({"status": "deleted", "activity": preview, "deleted_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z"})
+        return WriteResult({"status": "deleted", "activity": preview, "deleted_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")})
 
     @reg.tool(annotations=READ)
     def get_activity_types() -> Any:

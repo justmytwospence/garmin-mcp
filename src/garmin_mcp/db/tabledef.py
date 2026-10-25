@@ -73,6 +73,18 @@ def local_ms(name: str, comment: str, key: str | None = None) -> Column:
     return Column(name, "TIMESTAMP", comment, f"epoch_ms(TRY_CAST(b->>'{k}' AS BIGINT))::TIMESTAMP", k)
 
 
+def fill_extra(t: Table, also_consumed: dict[str, str] | None = None) -> None:
+    """A column named extra with no key becomes the JSON object minus every key the table
+    consumes. `also_consumed` names, per consumed key, a second key that the same column
+    consumes (a composite column reading the enhanced and the plain FIT field)."""
+    for i, c in enumerate(t.columns):
+        if c.expr == "__EXTRA__":
+            consumed = {x.key for x in t.columns if x.key is not None}
+            consumed |= {(also_consumed or {})[k] for k in list(consumed) if k in (also_consumed or {})}
+            patch = "{" + ",".join(f'"{k}":null' for k in sorted(consumed)) + "}"
+            t.columns[i] = Column(c.name, c.type, c.comment, f"json_merge_patch(b, '{patch}')", None)
+
+
 def sql_string(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 

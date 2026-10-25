@@ -10,7 +10,7 @@ from typing import Any
 
 from ..garmin.datasets import dataset
 from ..mirror import GarminNotFound, Provenance, note_provenance
-from .base import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, NoData, Registry, ToolFailure, WriteResult, activity_key, drop_none, parse_date, parse_range
+from .base import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, NoData, Registry, ToolFailure, WriteResult, activity_key, as_dict, drop_none, parse_date, parse_range
 from .challenge_support import (
     ADHOC_ACTIVITY_TYPE_MAPPING,
     BADGE_CATEGORY_MAPPING,
@@ -36,10 +36,6 @@ HR_ZONE_METHODS = {
     "LACTATE_THRESHOLD": "LACTATE_THRESHOLD", "LTHR": "LACTATE_THRESHOLD", "%LTHR": "LACTATE_THRESHOLD",
     "CUSTOM": "CUSTOM_BPM", "CUSTOM_BPM": "CUSTOM_BPM", "BPM": "CUSTOM_BPM",
 }
-
-
-def _as_dict(v: Any) -> dict[str, Any]:
-    return v if isinstance(v, dict) else {}
 
 
 def _normalize_sport(sport: str) -> str:
@@ -243,8 +239,8 @@ def register(reg: Registry) -> None:
             data = m.report("device_solar", f"/web-gateway/solar/{device_id}/{date}/{date}", {"singleDayView": "true"}, f"{device_id}_{date}").data
         except GarminNotFound as err:
             raise NoData(f"No solar data found for device {device_id} on {date} ({err})") from err
-        inp = _as_dict(data).get("deviceSolarInput") or data
-        readings = (_as_dict(inp).get("solarDailyDataDTOs") or [{}])
+        inp = as_dict(data).get("deviceSolarInput") or data
+        readings = (as_dict(inp).get("solarDailyDataDTOs") or [{}])
         day = readings[0] if readings else {}
         values = [v.get("solarUtilization") for v in (day.get("solarInputReadings") or []) if isinstance(v, dict) and isinstance(v.get("solarUtilization"), (int, float))]
         return drop_none({"device_id": device_id, "date": date, "solar_gain_activity_seconds": day.get("solarGainActivitySeconds") or day.get("solarGainActivityTime"),
@@ -262,7 +258,7 @@ def register(reg: Registry) -> None:
                 settings = m.snapshot("device_settings", str(did)).data
             except GarminNotFound:
                 continue
-            for a in _as_dict(settings).get("alarms") or []:
+            for a in as_dict(settings).get("alarms") or []:
                 alarms.append({"device_id": did, "device_name": d.get("displayName") or d.get("productDisplayName"), **(a if isinstance(a, dict) else {"alarm": a})})
         if not alarms:
             return "No alarms found."
@@ -286,7 +282,7 @@ def register(reg: Registry) -> None:
         except GarminNotFound as err:
             raise ToolFailure(f"Workout {workout_id} not found ({err})") from err
         m.call("push_workout_to_device", int(workout_id), int(device_id))
-        return WriteResult({"status": "success", "workout_id": int(workout_id), "workout_name": _as_dict(w).get("workoutName"), "device_id": int(device_id), "message": "Workout queued for the device; it appears after the next sync."})
+        return WriteResult({"status": "success", "workout_id": int(workout_id), "workout_name": as_dict(w).get("workoutName"), "device_id": int(device_id), "message": "Workout queued for the device; it appears after the next sync."})
 
     # ----------------------------------------------------------------- gear
 
@@ -319,8 +315,8 @@ def register(reg: Registry) -> None:
             if include_stats and uuid:
                 try:
                     st = m.snapshot("gear_stats", uuid).data
-                    dist = _as_dict(st).get("totalDistance")
-                    item["stats"] = {"total_activities": _as_dict(st).get("totalActivities"), "total_distance_km": round(dist / 1000, 1) if dist is not None else None}
+                    dist = as_dict(st).get("totalDistance")
+                    item["stats"] = {"total_activities": as_dict(st).get("totalActivities"), "total_distance_km": round(dist / 1000, 1) if dist is not None else None}
                 except Exception as err:  # noqa: BLE001
                     item["stats_error"] = str(err)
             out.append(item)
@@ -367,7 +363,7 @@ def register(reg: Registry) -> None:
     def weigh_in_days(start: str, end: str) -> list[dict[str, Any]]:
         days = []
         for c in m.chunks("weigh_ins", start, end).data:
-            for day in _as_dict(c).get("dailyWeightSummaries") or []:
+            for day in as_dict(c).get("dailyWeightSummaries") or []:
                 d = day.get("summaryDate") or ((day.get("allWeightMetrics") or [{}])[0].get("calendarDate"))
                 if d and start <= d <= end:
                     days.append(day)

@@ -1,3 +1,4 @@
+# Vendored from https://github.com/Taxuspt/garmin_mcp (MIT), src/garmin_mcp/workout_builders.py, at upstream commit a2ca5fc (2026-10-20), vendored 2026-10-22.
 """Workout JSON builders for Garmin Connect's workout-service.
 
 Vendored from Taxuspt/garmin_mcp (MIT), src/garmin_mcp/workout_builders.py: the payload

@@ -1,3 +1,4 @@
+# Vendored from https://github.com/Taxuspt/garmin_mcp (MIT), src/garmin_mcp/activity_analysis.py, at upstream commit a2ca5fc (2026-10-20), vendored 2026-10-22.
 """Analyses of an activity's FIT records: power duration curve, grade derivation and
 grade-correlated stats, climb detection, HR drift, temperature correlation, Di2 shift
 quality, HRV from RR intervals. Vendored from Taxuspt/garmin_mcp (MIT),

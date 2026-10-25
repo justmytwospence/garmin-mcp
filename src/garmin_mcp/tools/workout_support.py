@@ -1,3 +1,4 @@
+# Vendored from https://github.com/Taxuspt/garmin_mcp (MIT), src/garmin_mcp/workouts.py, at upstream commit a2ca5fc (2026-10-20), vendored 2026-10-22.
 """Workout JSON validation and curation helpers.
 
 Vendored from Taxuspt/garmin_mcp (MIT), src/garmin_mcp/workouts.py: the step-tree

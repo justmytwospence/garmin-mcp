@@ -1,3 +1,4 @@
+# Vendored from https://github.com/Taxuspt/garmin_mcp (MIT), src/garmin_mcp/challenges.py, at upstream commit a2ca5fc (2026-10-20), vendored 2026-10-22.
 """Badge, challenge, goal and personal-record mappings and formatters.
 
 Vendored from Taxuspt/garmin_mcp (MIT), src/garmin_mcp/challenges.py.

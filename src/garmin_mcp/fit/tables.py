@@ -12,7 +12,7 @@ Positions are converted from semicircles to degrees.
 
 from __future__ import annotations
 
-from ..db.tabledef import Column, Table, expr
+from ..db.tabledef import Column, Table, expr, fill_extra
 
 __all__ = ["FIT_TABLES", "FIT_MESSAGE_TABLES", "fit_table"]
 
@@ -679,20 +679,11 @@ FIT_TABLES: list[Table] = [
 ]
 
 
-def _fill_extra(t: Table) -> None:
-    for i, c in enumerate(t.columns):
-        if c.expr == "__EXTRA__":
-            consumed = sorted({x.key for x in t.columns if x.key is not None})
-            # The composite speed/altitude/respiration columns consume both the enhanced and plain field.
-            for k in ("enhanced_speed", "enhanced_altitude", "enhanced_respiration_rate"):
-                if k in consumed:
-                    consumed.append(k.removeprefix("enhanced_"))
-            patch = "{" + ",".join(f'"{k}":null' for k in sorted(set(consumed))) + "}"
-            t.columns[i] = Column(c.name, c.type, c.comment, f"json_merge_patch(b, '{patch}')", None)
-
+# The composite speed/altitude/respiration columns consume both the enhanced and the plain field.
+_ENHANCED = {k: k.removeprefix("enhanced_") for k in ("enhanced_speed", "enhanced_altitude", "enhanced_respiration_rate")}
 
 for _t in FIT_TABLES:
-    _fill_extra(_t)
+    fill_extra(_t, _ENHANCED)
 
 _BY_NAME = {t.name: t for t in FIT_TABLES}
 

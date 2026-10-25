@@ -1,3 +1,4 @@
+# Vendored from https://github.com/Taxuspt/garmin_mcp (MIT), src/garmin_mcp/write_errors.py, at upstream commit a2ca5fc (2026-10-20), vendored 2026-10-22.
 """Structured error results for tools that write to Garmin Connect (vendored from
 Taxuspt/garmin_mcp, MIT).
 

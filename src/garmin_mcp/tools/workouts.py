@@ -10,7 +10,7 @@ from typing import Any
 
 from ..garmin.datasets import dataset
 from ..mirror import GarminNotFound, Provenance, note_provenance
-from .base import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, NoData, Registry, ToolFailure, WriteResult, drop_none, parse_date, parse_range
+from .base import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, NoData, Registry, ToolFailure, WriteResult, as_dict, drop_none, parse_date, parse_range
 from .workout_builders import build_run_interval_json, build_run_json, build_strength_json, build_walk_run_json, build_z2_walk_json
 from .workout_support import (
     _curate_scheduled_workout,
@@ -23,10 +23,6 @@ from .workout_support import (
 
 GRAPHQL = "/graphql-gateway/graphql"
 DISTANCE_UNIT_TO_METERS = {"meter": 1.0, "kilometer": 1000.0, "yard": 0.9144, "mile": 1609.344}
-
-
-def _as_dict(v: Any) -> dict[str, Any]:
-    return v if isinstance(v, dict) else {}
 
 
 def register(reg: Registry) -> None:
@@ -45,13 +41,13 @@ def register(reg: Registry) -> None:
 
     def graphql(name: str, query: str, key: str) -> dict[str, Any]:
         try:
-            return _as_dict(m.report(name, GRAPHQL, None, key, method="POST", json_body={"query": query}).data)
+            return as_dict(m.report(name, GRAPHQL, None, key, method="POST", json_body={"query": query}).data)
         except GarminNotFound:
             return {}
 
     def scheduled_between(start: str, end: str) -> list[dict[str, Any]]:
         result = graphql("scheduled_workouts", f'query{{workoutScheduleSummariesScalar(startDate:"{start}", endDate:"{end}")}}', f"{start}_{end}")
-        return [s for s in (_as_dict(result.get("data")).get("workoutScheduleSummariesScalar") or []) if isinstance(s, dict)]
+        return [s for s in (as_dict(result.get("data")).get("workoutScheduleSummariesScalar") or []) if isinstance(s, dict)]
 
     def already_scheduled(workout_id: int, day: str) -> bool:
         try:
@@ -160,7 +156,7 @@ def register(reg: Registry) -> None:
             except Exception as err:  # noqa: BLE001
                 results.append({"index": i, "status": "failed", "name": (w or {}).get("workoutName"), "message": str(err)})
         ok = sum(1 for r in results if r.get("status") == "success")
-        return WriteResult({"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}, True if ok else False)
+        return WriteResult({"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}, bool(ok))
 
     def preview(workout_id: int) -> dict[str, Any]:
         for w in all_workouts():
@@ -206,7 +202,7 @@ def register(reg: Registry) -> None:
         except Exception:  # noqa: BLE001
             m.enqueue_refresh("snap:workouts", "self")
         ok = sum(1 for r in results if r["status"] == "deleted")
-        return WriteResult({"total": len(results), "deleted": ok, "failed": len(results) - ok, "results": results}, True if ok else False)
+        return WriteResult({"total": len(results), "deleted": ok, "failed": len(results) - ok, "results": results}, bool(ok))
 
     @reg.tool(annotations=READ)
     def get_scheduled_workouts(start_date: str, end_date: str) -> Any:
@@ -225,7 +221,7 @@ def register(reg: Registry) -> None:
     def coach_workouts(calendar_date: str) -> Any:
         parse_date(calendar_date, "calendar_date")
         result = graphql("training_plan_week", f'query{{trainingPlanScalar(calendarDate:"{calendar_date}", lang:"en-US", firstDayOfWeek:"monday")}}', calendar_date)
-        plan_data = _as_dict(_as_dict(result.get("data")).get("trainingPlanScalar"))
+        plan_data = as_dict(as_dict(result.get("data")).get("trainingPlanScalar"))
         plans_raw = plan_data.get("trainingPlanWorkoutScheduleDTOS") or []
         if not isinstance(plans_raw, list) or not plans_raw:
             return f"No training plan workouts scheduled for {calendar_date}."
@@ -235,8 +231,8 @@ def register(reg: Registry) -> None:
                 continue
             if plan.get("planName") and plan["planName"] not in names:
                 names.append(plan["planName"])
-            det = _as_dict(plan.get("trainingPlanDetailsDTO"))
-            race = _as_dict(det.get("athleteRace"))
+            det = as_dict(plan.get("trainingPlanDetailsDTO"))
+            race = as_dict(det.get("athleteRace"))
             ps = drop_none({"name": plan.get("planName"), "training_plan_id": plan.get("trainingPlanId"), "classification": plan.get("trainingPlanClassification"), "training_type": det.get("trainingType"), "race_name": race.get("raceName"),
                             "race_day": race.get("raceDay"), "workouts_per_week": det.get("workoutsPerWeek"), "remaining_workouts_this_week": det.get("remainingAtpWorkoutsForWeek"), "registration_date": det.get("registrationDate"), "plan_completed": det.get("planCompleted")})
             if ps:
@@ -297,7 +293,7 @@ def register(reg: Registry) -> None:
             except Exception as err:  # noqa: BLE001
                 results.append({"status": "failed", "workout_id": wid, "scheduled_date": day, "message": str(err)})
         ok = sum(1 for r in results if r.get("status") == "success")
-        return WriteResult({"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}, True if ok else False)
+        return WriteResult({"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}, bool(ok))
 
     @reg.tool(annotations=IDEMPOTENT_WRITE)
     def reschedule_workout(scheduled_workout_id: int, calendar_date: str) -> Any:
@@ -314,9 +310,9 @@ def register(reg: Registry) -> None:
             current = m.report("scheduled_workout", f"/workout-service/schedule/{sid}", None, str(sid)).data
         except GarminNotFound as err:
             raise ToolFailure(f"Scheduled workout {sid} not found ({err})") from err
-        workout = _as_dict(_as_dict(current).get("workout"))
-        payload = {**_as_dict(current), "calendarDate": calendar_date, "workout": {"workoutId": workout.get("workoutId")} if workout else None}
-        prev = _as_dict(current).get("calendarDate")
+        workout = as_dict(as_dict(current).get("workout"))
+        payload = {**as_dict(current), "calendarDate": calendar_date, "workout": {"workoutId": workout.get("workoutId")} if workout else None}
+        prev = as_dict(current).get("calendarDate")
 
         def refetch() -> None:
             refresh_calendar(calendar_date)
@@ -356,7 +352,7 @@ def register(reg: Registry) -> None:
                 results.append({"scheduled_workout_id": sid, "status": "failed", "message": str(err)})
         m.db.run("DELETE FROM raw_latest WHERE object_type IN ('scheduled_workouts', 'scheduled_workout')")
         ok = sum(1 for r in results if r["status"] == "success")
-        return WriteResult({"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}, True if ok else False)
+        return WriteResult({"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}, bool(ok))
 
     # ----------------------------------------------------------------- builders (upstream workout_builders)
 
@@ -459,7 +455,7 @@ def register(reg: Registry) -> None:
             except Exception as err:  # noqa: BLE001
                 results.append({"date": day, "workout_id": wid, "status": "failed", "message": str(err)})
         ok = sum(1 for r in results if r.get("status") == "success")
-        return WriteResult({"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}, True if ok else False)
+        return WriteResult({"total": len(results), "succeeded": ok, "failed": len(results) - ok, "results": results}, bool(ok))
 
     # ----------------------------------------------------------------- calendar events (upstream calendar_events)
 
@@ -482,7 +478,7 @@ def register(reg: Registry) -> None:
                 data = m.snapshot("calendar_month", f"{y}-{mo:02d}", max_age=_month_age(y, mo, m.today())).data
             except GarminNotFound:
                 data = {}
-            for item in (_as_dict(data).get("calendarItems") or []):
+            for item in (as_dict(data).get("calendarItems") or []):
                 if not isinstance(item, dict) or item.get("itemType") != "event":
                     continue
                 day = item.get("date")
@@ -495,18 +491,18 @@ def register(reg: Registry) -> None:
                 detail: dict[str, Any] = {}
                 try:
                     if item.get("id") is not None:
-                        detail = _as_dict(m.report("calendar_event_detail", f"/calendar-service/event/{item['id']}", None, str(item["id"])).data)
+                        detail = as_dict(m.report("calendar_event_detail", f"/calendar-service/event/{item['id']}", None, str(item["id"])).data)
                     elif item.get("shareableEventUuid"):
-                        detail = _as_dict(m.report("calendar_event_detail", f"/calendar-service/event/{item['shareableEventUuid']}/shareable", None, str(item["shareableEventUuid"])).data)
+                        detail = as_dict(m.report("calendar_event_detail", f"/calendar-service/event/{item['shareableEventUuid']}/shareable", None, str(item["shareableEventUuid"])).data)
                 except Exception:  # noqa: BLE001
                     detail = {}
-                target = _as_dict(item.get("completionTarget"))
+                target = as_dict(item.get("completionTarget"))
                 dist = None
                 if target.get("unitType") == "distance" and isinstance(target.get("value"), (int, float)) and target.get("unit") in DISTANCE_UNIT_TO_METERS:
                     dist = float(target["value"]) * DISTANCE_UNIT_TO_METERS[target["unit"]]
-                goal = _as_dict(_as_dict(detail.get("eventCustomization")).get("customGoal"))
+                goal = as_dict(as_dict(detail.get("eventCustomization")).get("customGoal"))
                 goal_s = float(goal["value"]) if goal.get("unitType") == "time" and goal.get("unit") == "second" and isinstance(goal.get("value"), (int, float)) else None
-                et = _as_dict(item.get("eventTimeLocal"))
+                et = as_dict(item.get("eventTimeLocal"))
                 loc = item.get("location").strip() if isinstance(item.get("location"), str) else None
                 events.append({"title": item.get("title"), "date": day, "is_race": bool(item.get("isRace")), "primary_event": bool(item.get("primaryEvent")), "subscribed": bool(item.get("subscribed")), "distance_meters": dist, "goal_time_seconds": goal_s,
                                "start_time_local": et.get("startTimeHhMm"), "time_zone": et.get("timeZoneId"), "location": loc or None, "url": item.get("url"), "event_uuid": item.get("shareableEventUuid")})

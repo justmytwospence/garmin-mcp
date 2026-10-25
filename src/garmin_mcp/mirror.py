@@ -21,7 +21,7 @@ from typing import Any
 from .db.database import Database
 from .db.raw import land
 from .garmin.client import AuthError, GarminClient, GarminError, NotFound, RateLimited, Unavailable
-from .garmin.datasets import DATASETS, REPORT_TTL, dataset, days_between
+from .garmin.datasets import REPORT_TTL, dataset, days_between
 from .sync.engine import SyncEngine
 
 log = logging.getLogger("garmin_mcp.mirror")
@@ -426,11 +426,6 @@ class Mirror:
     def row(self, sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
         rows = self.rows(sql, params)
         return rows[0] if rows else None
-
-    # ------------------------------------------------------------- status
-
-    def dataset_names(self) -> list[str]:
-        return [d.name for d in DATASETS]
 
 
 def jsonable(v: Any) -> Any:

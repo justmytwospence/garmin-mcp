@@ -7,15 +7,11 @@ from datetime import timedelta
 from typing import Any, Literal
 
 from ..mirror import GarminNotFound, Provenance, note_provenance
-from .base import READ, WRITE, NoData, Registry, ToolFailure, WriteResult, activity_key, drop_none, parse_date, parse_range
+from .base import READ, WRITE, NoData, Registry, ToolFailure, WriteResult, activity_key, as_dict, drop_none, parse_date, parse_range
 
 PROGRESS_CALORIES_FACTOR = 4.19
 CM_PER_MS_TO_MPS = 10
 ENDURANCE_CLASSES = {1: "recreational", 2: "intermediate", 3: "trained", 4: "well_trained", 5: "expert", 6: "superior", 7: "elite"}
-
-
-def _as_dict(v: Any) -> dict[str, Any]:
-    return v if isinstance(v, dict) else {}
 
 
 def _select_device(by_device: dict[str, Any]) -> tuple[dict[str, Any], str | None, bool | None]:
@@ -214,12 +210,12 @@ def register(reg: Registry) -> None:
         if not status:
             raise NoData(f"No training status data found for {date}.")
         names = device_names()
-        latest = _as_dict(_as_dict(status.get("mostRecentTrainingStatus")).get("latestTrainingStatusData"))
+        latest = as_dict(as_dict(status.get("mostRecentTrainingStatus")).get("latestTrainingStatusData"))
         dev, dev_id, primary = _select_device(latest)
-        acwr = _as_dict(dev.get("acuteTrainingLoadDTO"))
-        vo2 = _as_dict(status.get("mostRecentVO2Max"))
-        g, c = _as_dict(vo2.get("generic")), _as_dict(vo2.get("cycling"))
-        load_map = _as_dict(_as_dict(status.get("mostRecentTrainingLoadBalance")).get("metricsTrainingLoadBalanceDTOMap"))
+        acwr = as_dict(dev.get("acuteTrainingLoadDTO"))
+        vo2 = as_dict(status.get("mostRecentVO2Max"))
+        g, c = as_dict(vo2.get("generic")), as_dict(vo2.get("cycling"))
+        load_map = as_dict(as_dict(status.get("mostRecentTrainingLoadBalance")).get("metricsTrainingLoadBalanceDTOMap"))
         load, load_id, _ = _select_device(load_map)
         out = {
             "date": dev.get("calendarDate", date), "reporting_device_id": int(dev_id) if dev_id and dev_id.isdigit() else dev_id, "reporting_device_name": names.get(dev_id or ""), "load_device_id": int(load_id) if load_id and load_id.isdigit() else load_id,
@@ -274,7 +270,7 @@ def register(reg: Registry) -> None:
             shr = next((x for x in shr if isinstance(x, dict) and (x.get("speed") is not None or x.get("heartRate") is not None)), shr[0] if shr else {})
         if isinstance(power, list):
             power = power[0] if power else {}
-        shr, power = _as_dict(shr), _as_dict(power)
+        shr, power = as_dict(shr), as_dict(power)
         if not shr and not power:
             return "No lactate threshold data found."
         return drop_none({"lactate_threshold_speed_mps": shr.get("speed") * CM_PER_MS_TO_MPS if shr.get("speed") is not None else None, "lactate_threshold_heart_rate_bpm": shr.get("heartRate"), "heart_rate_cycling_bpm": shr.get("heartRateCycling"), "speed_hr_date": shr.get("calendarDate"),
@@ -313,10 +309,10 @@ def register(reg: Registry) -> None:
         trend = []
         for d in sorted(payloads):
             data = payloads[d]
-            latest = _as_dict(_as_dict(data.get("mostRecentTrainingStatus")).get("latestTrainingStatusData"))
+            latest = as_dict(as_dict(data.get("mostRecentTrainingStatus")).get("latestTrainingStatusData"))
             dev, dev_id, primary = _select_device(latest)
-            acwr = _as_dict(dev.get("acuteTrainingLoadDTO"))
-            g = _as_dict(_as_dict(data.get("mostRecentVO2Max")).get("generic"))
+            acwr = as_dict(dev.get("acuteTrainingLoadDTO"))
+            g = as_dict(as_dict(data.get("mostRecentVO2Max")).get("generic"))
             entry: dict[str, Any] = {"date": d}
             if dev_id:
                 entry["reporting_device_id"] = int(dev_id) if dev_id.isdigit() else dev_id
@@ -357,7 +353,7 @@ def register(reg: Registry) -> None:
         status = status_for(date)
         if not status:
             raise NoData(f"No training status data found for {date}.")
-        load_map = _as_dict(_as_dict(status.get("mostRecentTrainingLoadBalance")).get("metricsTrainingLoadBalanceDTOMap"))
+        load_map = as_dict(as_dict(status.get("mostRecentTrainingLoadBalance")).get("metricsTrainingLoadBalanceDTOMap"))
         load, load_id, _ = _select_device(load_map)
         if not load:
             raise NoData(f"No training load balance data found for {date}.")
@@ -533,7 +529,7 @@ def register(reg: Registry) -> None:
             data = m.range_day("max_metrics", date).data
         except GarminNotFound as err:
             raise NoData(f"No acclimation data found for {date}. ({err})") from err
-        acc = _as_dict((data if isinstance(data, dict) else {}).get("heatAltitudeAcclimation"))
+        acc = as_dict((data if isinstance(data, dict) else {}).get("heatAltitudeAcclimation"))
         if not acc:
             raise NoData(f"No acclimation data found for {date}. Garmin populates this only for days with a heat/altitude estimate.")
         out: dict[str, Any] = {"date": acc.get("calendarDate", date)}

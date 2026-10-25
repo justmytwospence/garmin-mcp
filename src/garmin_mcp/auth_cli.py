@@ -19,7 +19,6 @@ from pathlib import Path
 
 from .garmin.auth import (
     AUTH_COMMAND,
-    RESTART_COMMAND,
     TOKEN_FILE,
     LoginProblem,
     classify_login_error,
@@ -31,6 +30,7 @@ from .garmin.auth import (
     token_dir,
     write_marker,
 )
+from .garmin.client import RESTART_COMMAND
 
 
 def say(msg: str = "") -> None:
@@ -120,7 +120,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--email", default=None, help="email (else GARMIN_EMAIL, else prompt)")
     args = parser.parse_args(argv)
     tokenstore = os.path.expanduser(args.tokens) if args.tokens else token_dir()
-    cn = is_cn()
+    try:
+        cn = is_cn()
+    except ValueError as err:
+        say(f"ERROR: {err}")
+        return 2
     if args.check:
         problem = check(tokenstore, cn)
         if problem is None:

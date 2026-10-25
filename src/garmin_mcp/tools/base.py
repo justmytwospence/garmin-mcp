@@ -19,20 +19,22 @@ import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import TextContent, ToolAnnotations
 
+from ..env import env_int
 from ..garmin.client import AuthError, GarminError, NotFound, RateLimited, Unavailable, auth_fix
 from ..mirror import GarminNotFound, Mirror, Provenance, collect_provenance, merge_provenance
 from .profiles import resolve_tool_profile
 
 log = logging.getLogger("garmin_mcp.tools")
 
-CHARACTER_LIMIT = int(os.environ.get("GARMIN_MCP_CHARACTER_LIMIT", "60000"))
+# Longest tool result, in characters; longer ones are cut with a note (a bad value fails at import with its name).
+CHARACTER_LIMIT = env_int("GARMIN_MCP_CHARACTER_LIMIT", 60000, minimum=1000)
 
 READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True)
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True)
@@ -237,11 +239,12 @@ def drop_none(d: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
 
 
-def now_local_iso() -> str:
-    return datetime.now().replace(microsecond=0).isoformat()
+def as_dict(v: Any) -> dict[str, Any]:
+    """The value when it is a JSON object, else an empty one (payload fields are often null or a list)."""
+    return v if isinstance(v, dict) else {}
 
 
 __all__ = [
     "Registry", "ToolFilter", "ToolFailure", "NoData", "WriteResult", "READ", "WRITE", "DESTRUCTIVE", "IDEMPOTENT_WRITE",
-    "parse_date", "parse_range", "iso_days", "activity_key", "drop_none", "json_text", "CHARACTER_LIMIT",
+    "parse_date", "parse_range", "iso_days", "activity_key", "drop_none", "as_dict", "json_text", "CHARACTER_LIMIT",
 ]

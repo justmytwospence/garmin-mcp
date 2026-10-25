@@ -1,65 +1,13 @@
-"""Payload builders for writes: strength exercise sets and course creation from a
-parsed GPX. Vendored from Taxuspt/garmin_mcp (MIT), activity_management.py and courses.py.
+# Vendored from https://github.com/Taxuspt/garmin_mcp (MIT), src/garmin_mcp/courses.py, at upstream commit a2ca5fc (2026-10-20), vendored 2026-10-22.
+"""Payload builders for writes: course creation from a parsed GPX. Vendored from
+Taxuspt/garmin_mcp (MIT), src/garmin_mcp/courses.py.
 """
 
 from __future__ import annotations
 
 import math
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
-
-
-def _build_exercise_sets(sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Convert friendly set dicts into Garmin's exerciseSets wire format.
-
-    Mirrors what the Garmin Connect web editor sends: weight in grams with -1
-    meaning unweighted, the exercise name nulled when it equals the category,
-    and rest as a separate REST set following the active set it belongs to.
-    """
-    out: List[Dict[str, Any]] = []
-    for i, s in enumerate(sets, start=1):
-        category = str(s.get("category") or "").strip().upper()
-        if not category:
-            raise ValueError(f"set {i}: category is required")
-        name = str(s.get("exercise_name") or "").strip().upper() or None
-
-        if s.get("weight_kg") is not None and s.get("weight_lb") is not None:
-            raise ValueError(f"set {i}: give weight_kg or weight_lb, not both")
-        if s.get("weight_kg") is not None:
-            kg = float(s["weight_kg"])
-        elif s.get("weight_lb") is not None:
-            kg = float(s["weight_lb"]) * 0.45359237
-        else:
-            kg = None
-        if kg is not None and kg < 0:
-            raise ValueError(f"set {i}: weight cannot be negative")
-
-        reps = s.get("reps")
-        if reps is not None and (int(reps) != reps or reps < 0):
-            raise ValueError(f"set {i}: reps must be a non-negative whole number")
-
-        out.append({
-            "setType": "ACTIVE",
-            "exercises": [{
-                "category": category,
-                "name": None if name == category else name,
-                "probability": 100,
-            }],
-            "repetitionCount": None if reps is None else int(reps),
-            "weight": -1 if kg is None else round(kg * 1000),
-            "duration": s.get("duration_seconds"),
-        })
-        if s.get("rest_seconds"):
-            out.append({
-                "setType": "REST",
-                "exercises": [],
-                "repetitionCount": None,
-                "weight": -1,
-                "duration": s["rest_seconds"],
-            })
-    return out
-
-
+from typing import Any, Dict, Optional
 
 
 def _gpx_decimal(value: Any) -> str:

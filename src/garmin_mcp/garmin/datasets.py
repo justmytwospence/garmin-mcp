@@ -28,7 +28,8 @@ DAY = timedelta(days=1)
 WEEK = timedelta(days=7)
 
 
-def _dumps(v: Any) -> str:
+def compact_json(v: Any) -> str:
+    """The JSON text stored in raw_payload: compact, non-ASCII kept as is."""
     return json.dumps(v, separators=(",", ":"), ensure_ascii=False)
 
 
@@ -73,7 +74,7 @@ def split_by_date(key: str = "calendarDate") -> Callable[[Any], list[tuple[str, 
             return out
         for el in body:
             if isinstance(el, dict) and el.get(key):
-                out.append((str(el[key])[:10], _dumps(el)))
+                out.append((str(el[key])[:10], compact_json(el)))
         return out
 
     return fn
@@ -88,7 +89,7 @@ def split_grouped_by_date(key: str = "calendarDate") -> Callable[[Any], list[tup
             for el in body:
                 if isinstance(el, dict) and el.get(key):
                     groups.setdefault(str(el[key])[:10], []).append(el)
-        return [(d, _dumps(v)) for d, v in groups.items()]
+        return [(d, compact_json(v)) for d, v in groups.items()]
 
     return fn
 
@@ -99,7 +100,7 @@ def split_max_metrics(body: Any) -> list[tuple[str, str]]:
         for el in body:
             d = ((el or {}).get("generic") or {}).get("calendarDate") or ((el or {}).get("heatAltitudeAcclimation") or {}).get("calendarDate")
             if d:
-                out.append((str(d)[:10], _dumps(el)))
+                out.append((str(d)[:10], compact_json(el)))
     return out
 
 
@@ -107,7 +108,7 @@ def split_endurance(body: Any) -> list[tuple[str, str]]:
     gm = (body or {}).get("groupMap") if isinstance(body, dict) else None
     if not isinstance(gm, dict):
         return []
-    return [(d, _dumps(v)) for d, v in gm.items() if isinstance(v, dict) and (v.get("groupAverage") is not None or v.get("groupMax") is not None)]
+    return [(d, compact_json(v)) for d, v in gm.items() if isinstance(v, dict) and (v.get("groupAverage") is not None or v.get("groupMax") is not None)]
 
 
 def split_body_battery(body: Any) -> list[tuple[str, str]]:

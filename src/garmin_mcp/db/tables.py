@@ -10,7 +10,7 @@ Timestamps named *_gmt are UTC; *_local are wall-clock in the user's or activity
 
 from __future__ import annotations
 
-from .tabledef import Column, Table, col, expr, local_ms, table_ddl
+from .tabledef import Column, Table, col, expr, fill_extra, local_ms, table_ddl
 
 __all__ = ["TABLES", "table", "table_ddl", "Column", "Table"]
 
@@ -2029,17 +2029,8 @@ TABLES: list[Table] = [
     race_prediction_table,
 ]
 
-def _fill_extra(t: Table) -> None:
-    """A column named extra with no key becomes the JSON object minus every key the table consumes."""
-    for i, c in enumerate(t.columns):
-        if c.expr == "__EXTRA__":
-            consumed = sorted({x.key for x in t.columns if x.key is not None})
-            patch = "{" + ",".join(f'"{k}":null' for k in consumed) + "}"
-            t.columns[i] = Column(c.name, c.type, c.comment, f"json_merge_patch(b, '{patch}')", None)
-
-
 for _t in TABLES:
-    _fill_extra(_t)
+    fill_extra(_t)
 
 _BY_NAME = {t.name: t for t in TABLES}
 

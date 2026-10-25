@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..env import env_bool
 from .client import AUTH_COMMAND, AUTH_COMMAND_LOCAL, AuthError, GarminConnectTransport, Response, Transport, Unavailable, auth_fix
 
 log = logging.getLogger("garmin_mcp.auth")
@@ -38,8 +39,7 @@ def token_dir(env: dict[str, str] | None = None) -> str:
 
 
 def is_cn(env: dict[str, str] | None = None) -> bool:
-    env = os.environ if env is None else env
-    return (env.get("GARMIN_IS_CN") or "false").lower() in ("1", "true", "yes")
+    return env_bool("GARMIN_IS_CN", False, env)
 
 
 def domain(cn: bool) -> str:

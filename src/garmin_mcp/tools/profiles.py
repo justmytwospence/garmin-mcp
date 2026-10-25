@@ -1,3 +1,4 @@
+# Vendored from https://github.com/Taxuspt/garmin_mcp (MIT), src/garmin_mcp/tool_profiles.py, at upstream commit a2ca5fc (2026-10-20), vendored 2026-10-22.
 """Built-in tool profiles for GARMIN_TOOL_PROFILE (vendored from Taxuspt/garmin_mcp, MIT).
 
 The server registers about 160 tools. A profile narrows that to one area so an LLM

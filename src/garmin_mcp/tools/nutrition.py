@@ -1,3 +1,4 @@
+# Vendored from https://github.com/Taxuspt/garmin_mcp (MIT), src/garmin_mcp/nutrition.py, at upstream commit a2ca5fc (2026-10-20), vendored 2026-10-22.
 """Nutrition and food-logging tools.
 
 Vendored from Taxuspt/garmin_mcp (MIT), src/garmin_mcp/nutrition.py, unchanged apart
@@ -15,7 +16,7 @@ from garminconnect import GarminConnectConnectionError
 
 from .write_errors import WriteTracker
 
-# The garmin_client will be set by the main file
+# Set by configure(), called from tools/__init__.py with a LegacyClient over the mirror (tools/compat.py).
 garmin_client = None
 
 

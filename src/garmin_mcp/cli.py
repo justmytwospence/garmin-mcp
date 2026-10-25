@@ -13,16 +13,18 @@ import signal
 import sys
 import threading
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from .db.database import Database, DatabaseOptions, exit_on_fatal
-from .garmin.auth import LoginManager, is_cn, token_dir
+from .env import env_bool, env_int
+from .garmin.auth import LoginManager, PendingTransport, is_cn, token_dir
 from .garmin.client import GarminClient, RequestSample
 from .mirror import Mirror
 from .server import SERVER_NAME, VERSION, create_server
 from .snapshot import SnapshotPublisher
-from .strava_sync import StravaSync, StravaSyncConfig
+from .strava_sync import StravaSyncConfig
 from .sync.engine import SyncEngine
 from .tools.base import ToolFilter
 
@@ -46,8 +48,23 @@ class Runtime:
         self.db.close()
 
 
-def env_flag(name: str, default: str = "on") -> bool:
-    return (os.environ.get(name) or default).strip().lower() not in ("off", "0", "false", "no")
+def validate_settings(env: dict[str, str]) -> None:
+    """Parse every setting that can be wrong, so a bad value is one line on stderr, not a traceback."""
+    ToolFilter.from_env(env)
+    StravaSyncConfig.from_env(env)
+    env_bool("GARMIN_SYNC", True, env)
+    env_bool("MCP_STATELESS_HTTP", False, env)
+    is_cn(env)
+    env_int("DUCKDB_THREADS", 0, env, minimum=1)
+    env_int("PORT", 8000, env, minimum=1)
+    transport = (env.get("MCP_TRANSPORT") or "stdio").strip().lower()
+    if transport not in ("stdio", "http"):
+        raise ValueError(f'MCP_TRANSPORT must be "stdio" or "http", got "{transport}"')
+    if (env.get("GARMIN_HISTORY_START") or "").strip():
+        try:
+            date.fromisoformat(env["GARMIN_HISTORY_START"].strip())
+        except ValueError as err:
+            raise ValueError(f"GARMIN_HISTORY_START must be a date (YYYY-MM-DD), got {env['GARMIN_HISTORY_START']!r}") from err
 
 
 def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Runtime:
@@ -55,8 +72,8 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
     db_path = env.get("GARMIN_DB_PATH") or "./state/garmin.duckdb"
     data_dir = str(Path(db_path).resolve().parent)
     snapshot_dir = env.get("GARMIN_SNAPSHOT_DIR") or str(Path(data_dir) / "snapshot")
-    threads = env.get("DUCKDB_THREADS")
-    db = Database.open(DatabaseOptions(db_path, snapshot_dir, env.get("DUCKDB_MEMORY_LIMIT") or None, int(threads) if threads else None))
+    threads = env_int("DUCKDB_THREADS", 0, env, minimum=1)
+    db = Database.open(DatabaseOptions(db_path, snapshot_dir, env.get("DUCKDB_MEMORY_LIMIT") or None, threads or None))
     # A fatal DuckDB error leaves the mirror unusable: end the process so the container restarts.
     db.on_fatal = exit_on_fatal
 
@@ -66,16 +83,11 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
         except Exception:  # noqa: BLE001
             log.exception("request_log insert failed")
 
-    from .garmin.auth import PendingTransport
-
     client = GarminClient(PendingTransport(), on_sample=record)
     snapshot = SnapshotPublisher(db)
-    engine = SyncEngine(db, client, data_dir, on_change=snapshot.mark_dirty, history_start=env.get("GARMIN_HISTORY_START"))
-    strava = StravaSyncConfig.from_env(env)
-    if strava is not None:
-        engine.strava_sync = StravaSync(db, engine, strava)
+    engine = SyncEngine(db, client, data_dir, on_change=snapshot.mark_dirty, history_start=env.get("GARMIN_HISTORY_START") or None, strava=StravaSyncConfig.from_env(env))
     mirror = Mirror(db, engine, client)
-    sync_enabled = env_flag("GARMIN_SYNC")
+    sync_enabled = env_bool("GARMIN_SYNC", True, env)
     login = LoginManager(client, token_dir(env), email=env.get("GARMIN_EMAIL") or None, password=env.get("GARMIN_PASSWORD") or None, cn=is_cn(env))
     rt = Runtime(db, client, engine, mirror, snapshot, login, sync_enabled, db_path)
     if start:
@@ -94,41 +106,38 @@ def health_body(rt: Runtime) -> dict[str, Any]:
 def serve(args: argparse.Namespace) -> int:
     env = os.environ
     try:
-        filters = ToolFilter.from_env(env)
-        StravaSyncConfig.from_env(env)
+        validate_settings(env)
     except ValueError as err:
-        print(str(err), file=sys.stderr)
+        print(f"ERROR: {err}", file=sys.stderr)
         return 1
     rt = open_runtime(env)
-    server = create_server(rt.mirror, filters)
+    server = create_server(rt.mirror, ToolFilter.from_env(env))
     transport = (env.get("MCP_TRANSPORT") or "stdio").strip().lower()
     sync_label = "on" if rt.sync_enabled else "off"
     try:
         if transport == "stdio":
             print(f"{SERVER_NAME} {VERSION} running via stdio (mirror: {rt.db_path}, sync {sync_label})", file=sys.stderr)
             server.run(transport="stdio")
-        elif transport == "http":
+        else:
             import uvicorn
 
             from .http import build_app
 
-            port = int(env.get("PORT") or 8000)
+            port = env_int("PORT", 8000, env, minimum=1)
             host = env.get("MCP_HOST") or "0.0.0.0"
             allowed = [h.strip() for h in (env.get("MCP_ALLOWED_HOSTS") or "").split(",") if h.strip()]
+            mcp_token = env.get("MCP_BEARER_TOKEN") or ""
             app = build_app(
                 server,
                 snapshot=rt.snapshot,
                 health=health_body(rt),
                 allowed_hosts=allowed,
-                mcp_token=env.get("MCP_BEARER_TOKEN") or "",
+                mcp_token=mcp_token,
                 snapshot_token=env.get("SNAPSHOT_TOKEN") or "",
-                stateless=(env.get("MCP_STATELESS_HTTP") or "").lower() in ("1", "true", "yes", "on"),
+                stateless=env_bool("MCP_STATELESS_HTTP", False, env),
             )
             print(f"{SERVER_NAME} {VERSION} listening on http://{host}:{port}/mcp (mirror: {rt.db_path}, sync {sync_label})", file=sys.stderr)
             uvicorn.run(app, host=host, port=port, log_level=(env.get("LOG_LEVEL") or "info").lower(), lifespan="on")
-        else:
-            print(f'ERROR: MCP_TRANSPORT must be "stdio" or "http", got "{transport}".', file=sys.stderr)
-            return 1
     finally:
         rt.close()
     return 0
@@ -138,6 +147,11 @@ def import_export(args: argparse.Namespace) -> int:
     from .garmin.import_export import import_zip
 
     env = os.environ
+    try:
+        validate_settings(env)
+    except ValueError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 1
     rt = open_runtime(env, start=False)
     try:
         summary = import_zip(rt.engine, Path(args.zip), limit=args.limit)

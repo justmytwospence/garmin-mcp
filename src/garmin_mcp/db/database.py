@@ -195,10 +195,6 @@ class Database:
         with self.write() as tx:
             tx.run(sql, params)
 
-    def with_tx(self, fn: Callable[[Tx], Any]) -> Any:
-        with self.transaction() as tx:
-            return fn(tx)
-
     def connect(self) -> duckdb.DuckDBPyConnection:
         """A separate cursor on the same database, for the read-only query tool."""
         with self._lock:

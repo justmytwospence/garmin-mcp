@@ -1,3 +1,4 @@
+# Vendored from https://github.com/Taxuspt/garmin_mcp (MIT), src/garmin_mcp/workout_templates.py, at upstream commit a2ca5fc (2026-10-20), vendored 2026-10-22.
 """Workout template resources (vendored from Taxuspt/garmin_mcp, MIT): valid workout
 JSON structures clients can read and adapt for upload_workout.
 """

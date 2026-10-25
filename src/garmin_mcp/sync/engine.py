@@ -23,7 +23,6 @@ Job kinds and keys:
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from collections.abc import Callable
@@ -42,6 +41,7 @@ from ..garmin.datasets import (
     SNAPSHOT_DATASETS,
     dataset,
 )
+from ..strava_sync import StravaSync, StravaSyncConfig
 from .fetchers import Fetchers
 
 log = logging.getLogger("garmin_mcp.sync")
@@ -71,20 +71,21 @@ class SyncEngine:
         *,
         on_change: Callable[[], None] | None = None,
         history_start: str | None = None,
+        strava: StravaSyncConfig | None = None,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
         self.db = db
         self.client = client
         self.fetch = Fetchers(db, client, data_dir)
         self.on_change = on_change
-        self.history_start_env = history_start or os.environ.get("GARMIN_HISTORY_START")
+        self.history_start_env = history_start or None
         self._running = False
         self._thread: threading.Thread | None = None
         self._wake = threading.Event()
         self.current: dict[str, Any] | None = None
         self._sleep = sleep
-        # The optional Strava sync (strava_sync.StravaSync), attached by the entry point when STRAVA_SYNC is set.
-        self.strava_sync: Any = None
+        # The optional Strava sync, when STRAVA_SYNC is set (tests attach one with its own source).
+        self.strava_sync: StravaSync | None = StravaSync(db, self, strava) if strava is not None else None
 
     # ------------------------------------------------------------- time
 
@@ -384,7 +385,7 @@ class SyncEngine:
         if due("poll", timedelta(minutes=15)):
             self.enqueue("poll", "self", 10)
         if due("list_recent", timedelta(minutes=15)):
-            self.enqueue("list_recent", "self", 10 if have_activities else 10)
+            self.enqueue("list_recent", "self", 10)
         if due("list_full", timedelta(days=7)):
             self.enqueue("list_full", "self", 25 if have_activities else 10)
         if due("window", timedelta(hours=6)):
