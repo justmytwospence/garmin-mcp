@@ -21,7 +21,7 @@ from garmin_mcp.mirror import Mirror
 from garmin_mcp.server import create_server
 from garmin_mcp.snapshot import SnapshotPublisher
 from garmin_mcp.sync.engine import SyncEngine
-from garmin_mcp.tools.base import ToolFilter
+from garmin_mcp.tools.base import ToolFailure, ToolFilter
 from garmin_mcp.tools.mirror_tools import ReadOnlyQuery
 from garmin_mcp.tools.profiles import TOOL_PROFILES
 
@@ -87,7 +87,8 @@ def test_every_upstream_profile_name_is_a_registered_tool(world):
             continue
         assert tools <= names, (profile, sorted(tools - names))
     assert {"garmin_query", "garmin_schema", "garmin_sync_status"} <= names
-    assert len(names) >= 150
+    # The documented count: every upstream tool plus the three mirror tools (the optional Strava sync adds three more).
+    assert len(names) == 160
 
 
 def test_tool_filters_profile_allowlist_denylist():
@@ -234,8 +235,10 @@ def test_query_select_describe_and_row_cap(world):
     r = world.call("garmin_schema", {"table": "activity"})
     assert json.loads(text(r))["columns"][0]["comment"]
     q = ReadOnlyQuery(world.mirror)
-    with pytest.raises(Exception):
+    with pytest.raises(ToolFailure, match="read-only"):
         q.check("DELETE FROM activity")
+    with pytest.raises(ToolFailure, match="one statement"):
+        q.check("SELECT 1; SELECT 2")
 
 
 def test_sync_status_reports_login_and_coverage(world):
