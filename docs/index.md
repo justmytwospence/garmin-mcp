@@ -11,7 +11,17 @@ hide:
 [Get started](quickstart.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/justmytwospence/garmin-mcp){ .md-button }
 
-<!-- screenshots -->
+=== "Ask in plain language"
+
+    ![A question about resting heart rate, HRV and sleep answered with garmin_query from the mirror](assets/screenshots/chat.png)
+
+=== "Recovery dashboard"
+
+    ![The bundled Grafana dashboard: resting heart rate, HRV, sleep score and stages, Body Battery, stress](assets/screenshots/grafana-recovery.png)
+
+=== "Training dashboard"
+
+    ![The bundled Grafana dashboard: steps, training load, readiness, VO2 max and weekly volume by activity type](assets/screenshots/grafana-training.png)
 
 ## What you get
 

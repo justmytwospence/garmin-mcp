@@ -11,7 +11,10 @@ An [MCP](https://modelcontextprotocol.io) server for Garmin Connect that answers
 
 **Documentation: [justmytwospence.github.io/garmin-mcp](https://justmytwospence.github.io/garmin-mcp/)**
 
-<!-- screenshots -->
+<p align="center">
+  <img src="docs/assets/screenshots/chat.png" alt="A question about resting heart rate, HRV and sleep answered from the mirror" width="49%">
+  <img src="docs/assets/screenshots/grafana-recovery.png" alt="The bundled Grafana dashboard over the snapshot" width="49%">
+</p>
 
 ```mermaid
 flowchart LR
