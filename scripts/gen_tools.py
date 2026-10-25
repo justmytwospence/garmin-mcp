@@ -28,6 +28,7 @@ SECTIONS: list[tuple[str, str, str]] = [
     ("garmin_mcp.tools.training", "Training", "Training status and load, readiness, HRV, VO2 max, acclimation, endurance and hill scores, race predictions, and Garmin-side reports."),
     ("garmin_mcp.tools.workouts", "Workouts and calendar", "Workouts, the training calendar, scheduling, and the workout builders adapted from upstream."),
     ("garmin_mcp.tools.account", "Profile, devices, gear, goals, courses", "The user profile and settings, devices and sensors, gear, heart-rate zones, goals, badges, challenges and courses."),
+    ("garmin_mcp.tools.strava_sync", "Strava sync (optional)", "Registered only when `STRAVA_SYNC` is set: Strava activity names onto Garmin, and removal of courses Strava's sync left behind. See [Strava sync](../strava-sync.md)."),
     ("garmin_mcp.tools.nutrition", "Nutrition and women's health", "Pass-through tools vendored from upstream: fetched from Garmin and cached for ten minutes (the mirror does not keep nutrition logs)."),
 ]
 
@@ -73,7 +74,9 @@ def render() -> str:
     from garmin_mcp.tools.profiles import TOOL_PROFILES
 
     tmp = Path(tempfile.mkdtemp(prefix="garmin-mcp-tools-"))
-    rt = open_runtime({"GARMIN_DB_PATH": str(tmp / "garmin.duckdb"), "GARMIN_SYNC": "off"}, start=False)
+    # The optional Strava sync registers its tools only when configured; configure it (never run) so they are listed.
+    env = {"GARMIN_DB_PATH": str(tmp / "garmin.duckdb"), "GARMIN_SYNC": "off", "STRAVA_SYNC": "titles,courses", "STRAVA_SNAPSHOT": str(tmp / "strava.duckdb")}
+    rt = open_runtime(env, start=False)
     try:
         server = create_server(rt.mirror, ToolFilter())
         tools = asyncio.run(server.list_tools())

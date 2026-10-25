@@ -43,6 +43,23 @@ Everything is an environment variable. In Docker, set them in `.env` (see `.env.
 | `GARMIN_MCP_CHARACTER_LIMIT` | `60000` | Tool results longer than this are truncated with a note |
 | `GARMIN_FIT_DOWNLOAD_DIR`, `GARMIN_FIT_CONFIG` | unset | Where `download_activity_file` and `download_course_gpx` save files, and the config file `set_fit_download_dir` writes |
 
+## Strava sync (optional)
+
+Off unless `STRAVA_SYNC` is set. See [Strava sync](strava-sync.md) for what it does and its safeguards.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `STRAVA_SYNC` | unset (off) | `titles`, `courses`, or `titles,courses` (`all`) |
+| `STRAVA_SNAPSHOT` | unset | Required with `STRAVA_SYNC`: the path of a [strava-mcp](https://github.com/justmytwospence/strava-mcp) snapshot (`snapshot/strava.duckdb`, mounted read-only), or its `http(s)://…/snapshot.duckdb` URL |
+| `STRAVA_SNAPSHOT_TOKEN` | unset | Bearer token for a snapshot URL (strava-mcp's `SNAPSHOT_TOKEN`) |
+| `STRAVA_SYNC_COURSES` | `dry-run` | `on` deletes orphaned Strava-made courses; `dry-run` only reports them |
+| `STRAVA_SYNC_TITLES_SINCE` | the day the sync first ran | Rename only activities that started on or after this date, `YYYY-MM-DD` |
+| `STRAVA_SYNC_MAX_RENAMES` | `20` | Renames per run; the rest wait for the next run |
+| `STRAVA_SYNC_MAX_DELETES` | `10` | Above this many orphans a run deletes nothing and reports it |
+| `STRAVA_SYNC_MAX_AGE_HOURS` | `48` | Course deletions are skipped when Strava's route list in the snapshot is older |
+| `STRAVA_SYNC_INTERVAL_MINUTES` | `15` | How often the engine runs the sync |
+| `STRAVA_COURSE_CONSUMERS` | Strava's consumer id | Comma-separated Garmin consumer ids whose courses count as Strava-made |
+
 ## Compose-only
 
 These shape the stack rather than the server; `compose.yaml` reads them from `.env`.

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "docs" / "data" / "schema.md"
 
 SYSTEM = {"schema_migration"}
-RAW = ["raw_payload", "raw_latest", "raw_file", "reload_request", "sync_job", "sync_log", "sync_state", "request_log"]
+RAW = ["raw_payload", "raw_latest", "raw_file", "reload_request", "sync_job", "sync_log", "sync_state", "request_log", "strava_link"]
 
 # Day-keyed tables hang off daily_summary ("same day").
 DAY_PARENTS = {
@@ -139,7 +139,7 @@ def groups(cols):
         ("daily", "Daily wellness, sleep and training", "Everything keyed by calendar day. The *_day tables summarise one intraday dataset and the *_sample tables hold its series; the other tables are one row per day.", daily),
         ("wellness-fit", "Wellness FIT files", "The daily wellness bundles Garmin's devices upload, decoded: monitoring (steps, heart rate), stress, respiration, SpO2, sleep stages and assessment, HRV status and values, naps.", ["daily_summary", "raw_file", "fit_file"] + sorted(t for t in wfit if t not in ("fit_file", "fit_device_info", "fit_event", "fit_message"))),
         ("account", "Account, devices and planning", "The profile and settings, devices, sensors, gear, zones, goals, badges, challenges, workouts, training plans, the calendar, courses, blood pressure, and the snapshot payloads kept whole.", ACCOUNT),
-        ("raw", "Raw store and sync", "Every payload as received (raw_payload, with raw_latest pointing at the current version), the file manifest, and the sync engine's queue, log and state.", RAW),
+        ("raw", "Raw store and sync", "Every payload as received (raw_payload, with raw_latest pointing at the current version), the file manifest, the sync engine's queue, log and state, and the optional Strava sync's ledger.", RAW),
     ]
 
 

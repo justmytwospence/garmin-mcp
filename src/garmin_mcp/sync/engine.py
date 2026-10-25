@@ -16,7 +16,8 @@ Job kinds and keys:
   poll:self, window:self, list_recent:self, list_full:self,
   snap:<dataset>:<key>, day:<dataset>:<date>, range:<dataset>:<start>_<end>,
   act:<dataset>:<activity id>, activity_fit:<id>, wellness_fit:<date>,
-  reload:<date>, refetch_day:<date>, reparse:<kind>:<key> (decode a stored file again)
+  reload:<date>, refetch_day:<date>, reparse:<kind>:<key> (decode a stored file again),
+  strava_sync:self (the optional Strava sync, priority 12, when STRAVA_SYNC is set)
 """
 
 from __future__ import annotations
@@ -82,6 +83,8 @@ class SyncEngine:
         self._wake = threading.Event()
         self.current: dict[str, Any] | None = None
         self._sleep = sleep
+        # The optional Strava sync (strava_sync.StravaSync), attached by the entry point when STRAVA_SYNC is set.
+        self.strava_sync: Any = None
 
     # ------------------------------------------------------------- time
 
@@ -389,6 +392,8 @@ class SyncEngine:
         if due("plan", timedelta(hours=1)):
             self.plan()
             self.mark_ran("plan")
+        if self.strava_sync is not None and have_activities and due("strava_sync", self.strava_sync.config.interval):
+            self.enqueue("strava_sync", "self", 12)
 
     # ------------------------------------------------------------- jobs
 
@@ -444,6 +449,12 @@ class SyncEngine:
             return f.activity_fit(key, priority=cls).changed
         if kind == "wellness_fit":
             return f.wellness_fit(key, priority=cls).changed
+        if kind == "strava_sync":
+            self.mark_ran("strava_sync")
+            if self.strava_sync is None:
+                return False
+            r = self.strava_sync.run(priority=cls)
+            return bool((r.get("titles") or {}).get("renamed") or (r.get("courses") or {}).get("deleted"))
         if kind.startswith("reparse:"):
             return f.reparse_file(kind[8:], key).changed
         if kind == "reload":

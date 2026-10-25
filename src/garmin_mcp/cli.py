@@ -22,6 +22,7 @@ from .garmin.client import GarminClient, RequestSample
 from .mirror import Mirror
 from .server import SERVER_NAME, VERSION, create_server
 from .snapshot import SnapshotPublisher
+from .strava_sync import StravaSync, StravaSyncConfig
 from .sync.engine import SyncEngine
 from .tools.base import ToolFilter
 
@@ -70,6 +71,9 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
     client = GarminClient(PendingTransport(), on_sample=record)
     snapshot = SnapshotPublisher(db)
     engine = SyncEngine(db, client, data_dir, on_change=snapshot.mark_dirty, history_start=env.get("GARMIN_HISTORY_START"))
+    strava = StravaSyncConfig.from_env(env)
+    if strava is not None:
+        engine.strava_sync = StravaSync(db, engine, strava)
     mirror = Mirror(db, engine, client)
     sync_enabled = env_flag("GARMIN_SYNC")
     login = LoginManager(client, token_dir(env), email=env.get("GARMIN_EMAIL") or None, password=env.get("GARMIN_PASSWORD") or None, cn=is_cn(env))
@@ -83,13 +87,15 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
 
 
 def health_body(rt: Runtime) -> dict[str, Any]:
-    return {"status": "ok", "name": SERVER_NAME, "version": VERSION, "sync": "on" if rt.sync_enabled else "off"}
+    strava = rt.engine.strava_sync
+    return {"status": "ok", "name": SERVER_NAME, "version": VERSION, "sync": "on" if rt.sync_enabled else "off", "strava_sync": ",".join(strava.config.parts) if strava else "off"}
 
 
 def serve(args: argparse.Namespace) -> int:
     env = os.environ
     try:
         filters = ToolFilter.from_env(env)
+        StravaSyncConfig.from_env(env)
     except ValueError as err:
         print(str(err), file=sys.stderr)
         return 1

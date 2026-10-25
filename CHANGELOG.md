@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Optional Strava sync (`STRAVA_SYNC`), reading a strava-mcp snapshot rather than Strava itself. It renames Garmin activities to their Strava names, leaving Strava's automatic names and hand edits on Garmin alone. It also deletes courses Strava's route sync made once their route is unstarred, as a dry run until `STRAVA_SYNC_COURSES=on`, with a per-run cap and guards against a stale or empty snapshot. New tools `strava_sync_status`, `strava_sync_plan` and `strava_sync_apply`, registered only when it is enabled. See the Strava sync page.
+
 ## [1.0.1] - 2026-10-24
 
 ### Fixed

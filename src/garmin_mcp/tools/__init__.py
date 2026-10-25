@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from . import account, activities, analysis, health, mirror_tools, nutrition, training, workout_templates, workouts
+from . import account, activities, analysis, health, mirror_tools, nutrition, strava_sync, training, workout_templates, workouts
 from .base import Registry
 from .compat import LegacyClient, UpstreamApp
 
@@ -17,6 +17,7 @@ def register_all(reg: Registry) -> None:
     workouts.register(reg)
     account.register(reg)
     analysis.register(reg)
+    strava_sync.register(reg)
     nutrition.configure(LegacyClient(reg.mirror, "nutrition", timedelta(minutes=10)))
     nutrition.register_tools(UpstreamApp(reg))
     workout_templates.register_resources(reg.server)

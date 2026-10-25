@@ -45,6 +45,7 @@ nav:
   - Authentication: authentication.md
   - Clients: clients.md
   - How sync works: sync.md
+  - Strava sync: strava-sync.md
   - Data:
       - The mirror: data/index.md
       - Schema reference: data/schema.md

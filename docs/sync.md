@@ -21,6 +21,7 @@ Jobs have a priority (lower runs first) and, within a priority, newer dates run 
 |---|---|
 | 5 | Refreshes queued by tools after a write |
 | 10 | The device poll, the recent window after a device sync, listing new activities |
+| 12 | The optional [Strava sync](strava-sync.md), when `STRAVA_SYNC` is set |
 | 15-19 | Range datasets: daily summaries, steps, sleep statistics, HRV, readiness, VO2 max, Body Battery, endurance and hill scores, fitness age (28 days per request, so coverage comes fast) |
 | 20-29 | Per-day datasets (heart rate, stress, sleep, respiration, SpO2, floors, intensity minutes, training status, events, naps...) and per-activity datasets (detail, splits, typed splits, weather, zones, gear, exercise sets, polyline), the FIT files |
 | 30-45 | Snapshots with no urgency (devices, gear, zones, records, badges, goals, workouts, courses, calendar months), activity chart details |

@@ -100,6 +100,24 @@ CORE: list[str] = [
     "COMMENT ON TABLE reload_request IS 'Archive reload requests sent to Garmin for days whose intraday data was offloaded (POST wellness/epoch/request/{date}). Garmin allows about 30 per 24 hours; the engine uses at most 25. status is what Garmin answered (COMPLETE, PENDING, DENIED, ...); refetched_at is when the intraday datasets were fetched again.'",
 ]
 
+STRAVA_LINK: list[str] = [
+    """CREATE TABLE IF NOT EXISTS strava_link (
+    kind VARCHAR NOT NULL,
+    strava_id BIGINT NOT NULL,
+    garmin_id BIGINT NOT NULL,
+    strava_name VARCHAR,
+    garmin_name_set VARCHAR,
+    decided VARCHAR,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kind, strava_id, garmin_id)
+  )""",
+    "COMMENT ON TABLE strava_link IS 'Ledger of the optional Strava sync (STRAVA_SYNC): which Strava activity is which Garmin activity (kind activity) and which Strava route each kept Strava-made course follows (kind course). Empty unless the sync is enabled.'",
+    "COMMENT ON COLUMN strava_link.strava_name IS 'The Strava name last acted on (activity links): a rename runs again only when Strava''s name differs from it.'",
+    "COMMENT ON COLUMN strava_link.garmin_name_set IS 'The name the sync last wrote to Garmin, or found already in place; a Garmin name that differs from it was edited by hand and is left alone.'",
+    "COMMENT ON COLUMN strava_link.decided IS 'renamed, adopted (already equal), conflict (edited by hand on Garmin; left alone), or kept (course links).'",
+]
+
 MIGRATIONS: list[list[str]] = [
     [*CORE, *[s for t in TABLES for s in table_ddl(t)], *[s for t in FIT_TABLES for s in table_ddl(t)]],
+    STRAVA_LINK,
 ]
