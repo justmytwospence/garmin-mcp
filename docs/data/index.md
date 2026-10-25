@@ -1,6 +1,6 @@
 # The mirror
 
-One DuckDB file holds everything: the raw store, the typed tables projected from it, the decoded FIT files, and the sync engine's bookkeeping. The [schema reference](schema.md) lists all 100 tables with every column's type and description; this page explains how they fit together and how to read them.
+One DuckDB file holds everything: the raw store, the typed tables projected from it, the decoded FIT files, and the sync engine's bookkeeping. The [schema reference](schema.md) lists all <!-- count:tables -->101<!-- /count --> tables (<!-- count:fit-tables -->22<!-- /count --> of them FIT tables) and <!-- count:views -->1<!-- /count --> view with every column's type and description; this page explains how they fit together and how to read them.
 
 ## Three layers
 

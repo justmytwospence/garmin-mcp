@@ -2,7 +2,7 @@
 
 The server speaks MCP over Streamable HTTP at `/mcp` (the image's default) or over stdio when a client spawns it. Tool names are the ones of [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp), so a prompt or client configuration written for it works unchanged; `garmin_query`, `garmin_schema` and `garmin_sync_status` are new.
 
-Replace `<token>` with your `MCP_BEARER_TOKEN` and `http://localhost:8000` with wherever the server runs. The [tool profiles](reference/tools.md#profiles) are worth a look: a client that only needs health data carries 56 tool definitions in its context instead of 160.
+Replace `<token>` with your `MCP_BEARER_TOKEN` and `http://localhost:8000` with wherever the server runs. The [tool profiles](reference/tools.md#profiles) are worth a look: a client that only needs health data carries <!-- count:profile-health -->56<!-- /count --> tool definitions in its context instead of <!-- count:tools -->160<!-- /count -->.
 
 ## Claude Code
 
