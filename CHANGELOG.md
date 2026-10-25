@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `STRAVA_DEFAULT_NAME_PATTERN`: the regular expression for Strava's automatic activity names, which the Strava sync never copies onto Garmin. The built-in pattern matches the English names ("Morning Run"); Strava localizes them, so accounts in other languages set their own. Validated at start and shown by `strava_sync_status`.
+- The server warns at start when it serves HTTP without `MCP_BEARER_TOKEN`.
+- A documentation site with a home page, an FAQ, a troubleshooting page, and client setup for Claude Code, Claude Desktop, claude.ai, Cursor, VS Code, Codex, ChatGPT, Gemini CLI and pi. Generated pages keep the tool and table counts quoted in the prose current.
+- A `vX.Y.Z` tag now also creates the GitHub Release (notes from this file) and publishes the package to PyPI.
+
+### Changed
+
+- The distribution is `garmin-mirror-mcp` on PyPI (`uvx --from garmin-mirror-mcp garmin-mcp`); the `garmin-mcp` and `garmin-mcp-auth` commands and the `garmin_mcp` package keep their names. The name `garmin-mcp` belongs to another project on PyPI.
+- Outside Docker the mirror defaults to the user's data directory (`~/.local/share/garmin-mcp`, `~/Library/Application Support/garmin-mcp`, `%LOCALAPPDATA%\garmin-mcp`) instead of `./state` under the working directory. Set `GARMIN_DB_PATH` to keep an existing location.
+- The image sets `GARMIN_FIT_DOWNLOAD_DIR=/data/downloads` and `GARMIN_FIT_CONFIG=/data/fit_config.json`, so downloaded files and the download-directory setting live on the volume.
+- `compose.yaml` hands the whole `.env` to the server (`env_file`), so every documented variable reaches it; `.env.example` lists each one with its default. Before, `MCP_STATELESS_HTTP`, `GARMIN_FIT_CONFIG` and the `STRAVA_SYNC_*` caps were silently ignored in Docker.
+- The Strava sync's bearer token is `STRAVA_EXPORT_TOKEN` (`STRAVA_SNAPSHOT_TOKEN` still works) and the documented export path is strava-mcp's `/export/sync`.
+- Boolean settings (`GARMIN_SYNC`, `GARMIN_IS_CN`, `MCP_STATELESS_HTTP`) accept `on`/`off`, `true`/`false`, `yes`/`no` and `1`/`0`; any other value, like a bad `GARMIN_HISTORY_START`, `DUCKDB_THREADS` or `GARMIN_MCP_CHARACTER_LIMIT`, stops the server at start with one line naming the variable instead of a traceback.
+- `LICENSE` is the plain MIT text; the attribution of the code vendored from Taxuspt/garmin_mcp moved to `NOTICE`, which the package ships.
+
+### Fixed
+
+- `add_weigh_in_with_timestamps` without timestamps dated the weigh-in in the container's clock (UTC in the image); it now uses the profile's time zone, like the rest of the sync.
+
 ## [1.2.0] - 2026-10-25
 
 ### Changed
@@ -23,7 +44,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - After a rename (or a description, type or event-type edit), the mirror could keep the old value, because the name always came from the activity list even when the re-fetched detail was newer. Edited fields now come from whichever payload is newer.
 
-## [1.0.0] - unreleased
+## [1.0.0] - 2026-10-24
 
 The first release meant for other people: a self-hosted compose stack with documentation. Everything below the "Changed" heading summarises the 0.1.x line it grew out of.
 
@@ -64,8 +85,11 @@ The first release meant for other people: a self-hosted compose stack with docum
 
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
-[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v0.1.4...HEAD
-[1.0.0]: https://github.com/justmytwospence/garmin-mcp/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.0.1...v1.1.0
+[1.0.1]: https://github.com/justmytwospence/garmin-mcp/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/justmytwospence/garmin-mcp/compare/v0.1.4...v1.0.0
 [0.1.4]: https://github.com/justmytwospence/garmin-mcp/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/justmytwospence/garmin-mcp/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/justmytwospence/garmin-mcp/compare/v0.1.1...v0.1.2
