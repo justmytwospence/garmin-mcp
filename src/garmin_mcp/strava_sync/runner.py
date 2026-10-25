@@ -139,7 +139,7 @@ class StravaSync:
             return Planned(None, None, None, [str(err)])
         titles = None
         if self.config.titles and since is not None:
-            titles = plan_titles(data.activities, self._garmin_activities(since), self._title_links())
+            titles = plan_titles(data.activities, self._garmin_activities(since), self._title_links(), self.config.default_name)
         courses = None
         if self.config.courses:
             age = self._now() - data.routes_checked_at if data.routes_checked_at else None

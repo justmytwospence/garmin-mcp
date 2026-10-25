@@ -1,5 +1,5 @@
-"""Strava data for the sync, read from strava-mcp: its live export (GET
-/export/garmin-sync) or its published snapshot.
+"""Strava data for the sync, read from strava-mcp: its live export (GET /export/sync)
+or its published snapshot.
 
 The export is a few kilobytes of JSON computed live, so a rename reaches the sync
 within a minute of strava-mcp hearing of it. The snapshot is republished at most
@@ -27,9 +27,6 @@ from .config import StravaSyncConfig
 
 class SourceUnavailable(Exception):
     """strava-mcp's export or snapshot cannot be read."""
-
-
-SnapshotUnavailable = SourceUnavailable
 
 
 @dataclass(frozen=True)
@@ -144,7 +141,7 @@ class StravaSnapshot:
 
 
 class StravaExport:
-    """strava-mcp's GET /export/garmin-sync, with the snapshot token as bearer."""
+    """strava-mcp's GET /export/sync (older releases: /export/garmin-sync), with STRAVA_EXPORT_TOKEN as bearer."""
 
     def __init__(self, config: StravaSyncConfig, *, timeout: float = 30.0) -> None:
         self.config = config

@@ -20,18 +20,19 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
+from .config import DEFAULT_NAME_PATTERN
 from .source import StravaActivity, StravaRoute
 
 MATCH_SECONDS = 60
 DISTANCE_TOLERANCE = 0.02
 START_TOLERANCE_M = 250.0
 
-# Strava's automatic activity names: a time of day and the sport ("Afternoon Trail Run").
-DEFAULT_NAME = re.compile(r"^(Morning|Lunch|Afternoon|Evening|Night) \S.*$")
+# Strava's automatic activity names (English; see STRAVA_DEFAULT_NAME_PATTERN).
+DEFAULT_NAME = re.compile(DEFAULT_NAME_PATTERN)
 
 
-def is_default_name(name: str) -> bool:
-    return bool(DEFAULT_NAME.match(name.strip()))
+def is_default_name(name: str, pattern: re.Pattern[str] = DEFAULT_NAME) -> bool:
+    return bool(pattern.match(name.strip()))
 
 
 def haversine_m(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -116,7 +117,7 @@ def pair_activities(strava: list[StravaActivity], garmin: list[GarminActivity], 
     return pairs
 
 
-def plan_titles(strava: list[StravaActivity], garmin: list[GarminActivity], links: dict[int, TitleLink]) -> TitlePlan:
+def plan_titles(strava: list[StravaActivity], garmin: list[GarminActivity], links: dict[int, TitleLink], default_name: re.Pattern[str] = DEFAULT_NAME) -> TitlePlan:
     plan = TitlePlan()
     for s, g in pair_activities(strava, garmin, plan):
         name = s.name.strip()
@@ -126,7 +127,7 @@ def plan_titles(strava: list[StravaActivity], garmin: list[GarminActivity], link
         if not name:
             plan.skip("empty_strava_name")
             continue
-        if is_default_name(name):
+        if is_default_name(name, default_name):
             plan.skip("strava_default_name")
             continue
         if link is not None and link.strava_name == name:

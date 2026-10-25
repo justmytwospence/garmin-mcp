@@ -2,14 +2,16 @@
 
 The feature is off unless STRAVA_SYNC names at least one part (titles, courses). It
 reads Strava data from strava-mcp, never from Strava itself, so it needs no Strava
-credentials of its own: from its live export (STRAVA_EXPORT_URL, GET
-/export/garmin-sync, fresh to the minute) or from its snapshot (STRAVA_SNAPSHOT, a
-file path or an http(s) URL, republished at most hourly).
+credentials of its own: from its live export (STRAVA_EXPORT_URL, GET /export/sync,
+fresh to the minute) or from its snapshot (STRAVA_SNAPSHOT, a file path or an http(s)
+URL, republished at most hourly). The bearer token for either is STRAVA_EXPORT_TOKEN
+(strava-mcp's SNAPSHOT_TOKEN; the older name STRAVA_SNAPSHOT_TOKEN still works).
 """
 
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
@@ -18,6 +20,11 @@ PARTS = ("titles", "courses")
 
 # The consumer id Garmin records on courses that Strava's own route sync created.
 STRAVA_COURSE_CONSUMERS = frozenset({"3527224f-080a-4b66-8b72-0a2c3e111af0"})
+
+# Strava's automatic activity names, which the sync never copies onto Garmin: a time of
+# day and the sport ("Afternoon Trail Run"). These are the English strings; Strava
+# localizes them, so STRAVA_DEFAULT_NAME_PATTERN overrides the pattern for other languages.
+DEFAULT_NAME_PATTERN = r"^(Morning|Lunch|Afternoon|Evening|Night) \S.*$"
 
 CoursesMode = Literal["dry-run", "on"]
 
@@ -36,6 +43,7 @@ class StravaSyncConfig:
     max_age: timedelta = timedelta(hours=48)
     interval: timedelta = timedelta(minutes=2)
     course_consumers: frozenset[str] = field(default_factory=lambda: STRAVA_COURSE_CONSUMERS)
+    default_name: re.Pattern[str] = field(default_factory=lambda: re.compile(DEFAULT_NAME_PATTERN))
 
     @property
     def parts(self) -> list[str]:
@@ -60,6 +68,7 @@ class StravaSyncConfig:
             "max_deletes_per_run": self.max_deletes,
             "max_route_list_age_hours": self.max_age.total_seconds() / 3600,
             "interval_minutes": self.interval.total_seconds() / 60,
+            "default_name_pattern": self.default_name.pattern,
         }
 
     @classmethod
@@ -78,7 +87,7 @@ class StravaSyncConfig:
         snapshot = (env.get("STRAVA_SNAPSHOT") or "").strip() or None
         export_url = (env.get("STRAVA_EXPORT_URL") or "").strip() or None
         if not snapshot and not export_url:
-            raise ValueError("STRAVA_SYNC is set but neither STRAVA_EXPORT_URL (strava-mcp's /export/garmin-sync) nor STRAVA_SNAPSHOT (its snapshot) is")
+            raise ValueError("STRAVA_SYNC is set but neither STRAVA_EXPORT_URL (strava-mcp's /export/sync) nor STRAVA_SNAPSHOT (its snapshot) is")
         if snapshot and export_url:
             raise ValueError("set one of STRAVA_EXPORT_URL and STRAVA_SNAPSHOT, not both")
         if export_url and not export_url.startswith(("http://", "https://")):
@@ -92,12 +101,17 @@ class StravaSyncConfig:
         except ValueError as err:
             raise ValueError(f"STRAVA_SYNC_TITLES_SINCE must be a date (YYYY-MM-DD), got {since_raw!r}") from err
         consumers = {c.strip() for c in (env.get("STRAVA_COURSE_CONSUMERS") or "").split(",") if c.strip()}
+        pattern_raw = (env.get("STRAVA_DEFAULT_NAME_PATTERN") or "").strip() or DEFAULT_NAME_PATTERN
+        try:
+            default_name = re.compile(pattern_raw)
+        except re.error as err:
+            raise ValueError(f"STRAVA_DEFAULT_NAME_PATTERN is not a valid regular expression: {err}") from err
         return cls(
             titles="titles" in parts,
             courses="courses" in parts,
             snapshot=snapshot,
             export_url=export_url,
-            token=(env.get("STRAVA_SNAPSHOT_TOKEN") or "").strip() or None,
+            token=(env.get("STRAVA_EXPORT_TOKEN") or env.get("STRAVA_SNAPSHOT_TOKEN") or "").strip() or None,
             courses_mode=mode,  # type: ignore[arg-type]
             titles_since=since,
             max_renames=_int(env, "STRAVA_SYNC_MAX_RENAMES", 20),
@@ -105,6 +119,7 @@ class StravaSyncConfig:
             max_age=timedelta(hours=_int(env, "STRAVA_SYNC_MAX_AGE_HOURS", 48)),
             interval=timedelta(minutes=max(1, _int(env, "STRAVA_SYNC_INTERVAL_MINUTES", 2))),
             course_consumers=frozenset(consumers) or STRAVA_COURSE_CONSUMERS,
+            default_name=default_name,
         )
 
 

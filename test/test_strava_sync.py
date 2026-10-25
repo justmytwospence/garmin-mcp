@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -49,10 +50,16 @@ def test_config_is_off_by_default_and_validates():
     assert c is not None and c.parts == ["titles"] and c.courses_mode == "dry-run" and not c.is_url
     c = StravaSyncConfig.from_env({"STRAVA_SYNC": "all", "STRAVA_SNAPSHOT": "http://strava-mcp:8000/snapshot.duckdb", "STRAVA_SYNC_COURSES": "on", "STRAVA_SYNC_TITLES_SINCE": "2026-10-01"})
     assert c is not None and c.parts == ["titles", "courses"] and c.is_url and c.courses_mode == "on" and c.titles_since == date(2026, 10, 1)
-    c = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": "http://strava-mcp:8000/export/garmin-sync", "STRAVA_SNAPSHOT_TOKEN": "t"})
-    assert c is not None and c.export_url and c.snapshot is None and c.describe()["source"] == "export" and c.interval == timedelta(minutes=2)
+    c = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": "http://strava-mcp:8000/export/sync", "STRAVA_EXPORT_TOKEN": "t"})
+    assert c is not None and c.export_url and c.snapshot is None and c.token == "t" and c.describe()["source"] == "export" and c.interval == timedelta(minutes=2)
+    # the older token name still works; the new one wins when both are set
+    assert StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": "http://x/export/sync", "STRAVA_SNAPSHOT_TOKEN": "old"}).token == "old"
+    assert StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": "http://x/export/sync", "STRAVA_SNAPSHOT_TOKEN": "old", "STRAVA_EXPORT_TOKEN": "new"}).token == "new"
+    c = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_DEFAULT_NAME_PATTERN": r"^(Morgen|Mittags|Nachmittags|Abend|Nacht)\S+$"})
+    assert c is not None and c.default_name.match("Morgenlauf") and not c.default_name.match("Morning Run") and c.describe()["default_name_pattern"].startswith("^(Morgen")
     for bad in ({"STRAVA_SYNC": "titles"}, {"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_EXPORT_URL": "http://y"}, {"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": "strava-mcp:8000"}, {"STRAVA_SYNC": "maps", "STRAVA_SNAPSHOT": "x"}, {"STRAVA_SYNC": "courses", "STRAVA_SNAPSHOT": "x", "STRAVA_SYNC_COURSES": "yes"},
-                {"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_SYNC_TITLES_SINCE": "last week"}, {"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_SYNC_MAX_DELETES": "-1"}):
+                {"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_SYNC_TITLES_SINCE": "last week"}, {"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_SYNC_MAX_DELETES": "-1"},
+                {"STRAVA_SYNC": "titles", "STRAVA_SNAPSHOT": "x", "STRAVA_DEFAULT_NAME_PATTERN": "(unclosed"}):
         with pytest.raises(ValueError):
             StravaSyncConfig.from_env(bad)
 
@@ -70,6 +77,8 @@ def test_default_names():
         assert is_default_name(n)
     for n in ("Ridge Loop", "Morning", "Tempo", "Trail Running Club"):
         assert not is_default_name(n)
+    custom = re.compile(r"^(Course|Sortie) .+$")
+    assert is_default_name("Course du matin", custom) and not is_default_name("Morning Run", custom)
 
 
 def act(i: int, name: str, offset_s: int = 0) -> tuple[StravaActivity, GarminActivity]:
@@ -366,6 +375,7 @@ def test_tools_preview_then_apply():
     w = courses_world({})
     try:
         w.snapshot(routes=ROUTES)
+        assert len(asyncio.run(create_server(w.mirror).list_tools())) == 163, "the three Strava tools on top of the 160"
         status = json.loads(w.call("strava_sync_status").content[0].text)
         assert status["settings"]["parts"] == ["courses"]
         plan = json.loads(w.call("strava_sync_plan").content[0].text)
@@ -399,7 +409,7 @@ def test_tools_absent_when_disabled():
 
 
 class ExportServer:
-    """A stand-in for strava-mcp's GET /export/garmin-sync."""
+    """A stand-in for strava-mcp's GET /export/sync."""
 
     def __init__(self, token: str = "secret") -> None:
         import http.server
@@ -428,7 +438,7 @@ class ExportServer:
                 pass
 
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/export/garmin-sync"
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/export/sync"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def close(self) -> None:
@@ -438,7 +448,7 @@ class ExportServer:
 def test_export_source_reads_strava_mcp():
     srv = ExportServer()
     try:
-        cfg = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles,courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret"})
+        cfg = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles,courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_EXPORT_TOKEN": "secret"})
         srv.body["starred_routes"] = [{"id": "9007199254740993", "name": "River Trail", "distance": 10000.5, "start": [50.4, 9.9]}, {"id": "7", "name": "No map", "distance": None, "start": None}]
         srv.body["activities"] = [{"id": "90000000001", "name": "Tempo", "start_date": "2026-10-24T21:00:00.000Z", "elapsed_time": 900}]
         from garmin_mcp.strava_sync.source import SourceUnavailable, StravaExport
@@ -447,7 +457,7 @@ def test_export_source_reads_strava_mcp():
         assert [r.id for r in data.starred_routes] == [9007199254740993, 7] and data.starred_routes[0].start == (50.4, 9.9)
         assert data.activities[0].start == datetime(2026, 10, 24, 21, 0, tzinfo=UTC) and data.activities[0].name == "Tempo"
         assert "since=2026-10-01" in srv.requests[-1][0] and srv.requests[-1][1] == "Bearer secret"
-        bad = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "wrong"})
+        bad = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": srv.url, "STRAVA_EXPORT_TOKEN": "wrong"})
         with pytest.raises(SourceUnavailable, match="401"):
             StravaExport(bad).read(None)
         srv.body = {"unexpected": True}
@@ -463,10 +473,10 @@ def course_list_requests(w: World) -> int:
 
 def test_course_list_is_fetched_only_when_it_could_matter():
     srv = ExportServer()
-    w = World({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret"},
+    w = World({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_EXPORT_TOKEN": "secret"},
               courses=[garmin_course(10, "River Trail", 10000.0, 50.4, 9.9), garmin_course(11, "Unstarred", 8000.0, 50.2, 9.8)])
     try:
-        w.sync.config = StravaSyncConfig.from_env({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret"})
+        w.sync.config = StravaSyncConfig.from_env({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_EXPORT_TOKEN": "secret"})
         srv.body["starred_routes"] = [{"id": "1", "name": "River Trail", "distance": 10000.0, "start": [50.4, 9.9]}, {"id": "2", "name": "Unstarred", "distance": 8000.0, "start": [50.2, 9.8]}]
         w.sync.run()
         assert course_list_requests(w) == 1
@@ -481,7 +491,7 @@ def test_course_list_is_fetched_only_when_it_could_matter():
         assert course_list_requests(w) == 3, "an hour-old course list is re-fetched"
         # deletions always act on a fresh list
         w.sync._now = lambda: datetime.now(UTC)
-        w.sync.config = StravaSyncConfig.from_env({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret", "STRAVA_SYNC_COURSES": "on"})
+        w.sync.config = StravaSyncConfig.from_env({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_EXPORT_TOKEN": "secret", "STRAVA_SYNC_COURSES": "on"})
         before = course_list_requests(w)
         r = w.sync.run()
         assert w.deletes() == ["/course-service/course/11"] and course_list_requests(w) == before + 2  # before deciding, after deleting
