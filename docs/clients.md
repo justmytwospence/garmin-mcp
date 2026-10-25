@@ -4,6 +4,11 @@ The server speaks MCP over Streamable HTTP at `/mcp` (the image's default) or ov
 
 Replace `<token>` with your `MCP_BEARER_TOKEN` and `http://localhost:8000` with wherever the server runs. The [tool profiles](reference/tools.md#profiles) are worth a look: a client that only needs health data carries <!-- count:profile-health -->56<!-- /count --> tool definitions in its context instead of <!-- count:tools -->160<!-- /count -->.
 
+Two ways to connect, whatever the client:
+
+- **Remote (Streamable HTTP).** The Docker service, reached with the bearer token or, through the [OAuth profile](authentication.md#oauth-21-with-your-own-provider), with a browser login. One mirror, shared by every client.
+- **Local (stdio).** The client starts `garmin-mcp` itself. Install the package (`uv tool install garmin-mirror-mcp`) and log in once with `garmin-mcp-auth`; each launch opens the mirror and runs the sync while the client is open. Do not point a stdio server and the Docker service at the same `GARMIN_DB_PATH`: DuckDB allows one writing process.
+
 ## Claude Code
 
 ```sh
@@ -25,31 +30,26 @@ Or in `.mcp.json` (project) or `~/.claude.json` (user):
 }
 ```
 
-With the [OAuth profile](authentication.md#oauth-21-with-your-own-provider), drop the header and use the public URL; Claude Code opens the browser login on first use.
+With the OAuth profile, drop the header and use the public URL; Claude Code opens the browser login on first use.
 
 ## Claude Desktop
 
-Claude Desktop launches stdio servers. Install the package locally, log in, and point it at the mirror:
-
-```sh
-uv tool install git+https://github.com/justmytwospence/garmin-mcp
-garmin-mcp-auth
-```
-
-`claude_desktop_config.json`:
+Claude Desktop runs local stdio servers from `claude_desktop_config.json` (Settings, Developer, *Edit Config*; `~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows). It does not inherit your shell's `PATH`, so give the absolute path of the executable (`which garmin-mcp`, or `which uvx`):
 
 ```json
 {
   "mcpServers": {
     "garmin": {
-      "command": "garmin-mcp",
+      "command": "/Users/you/.local/bin/garmin-mcp",
       "env": { "GARMIN_DB_PATH": "/Users/you/garmin/garmin.duckdb" }
     }
   }
 }
 ```
 
-Each launch opens the mirror, logs in from the stored tokens in the background, and runs the sync engine while Claude Desktop is open. Do not point a stdio server and the Docker service at the same file: DuckDB allows one writing process. To use the Docker service from Claude Desktop instead, add it as a remote server under Settings, Connectors (an HTTP URL with the OAuth profile), or run a local stdio bridge such as `mcp-remote` with the bearer header.
+Or without installing: `"command": "/Users/you/.local/bin/uvx", "args": ["--from", "garmin-mirror-mcp", "garmin-mcp"]`. Log in once beforehand with `garmin-mcp-auth` in a terminal (the tokens go to `~/.garminconnect`), then restart Claude Desktop.
+
+To use the Docker service instead, add it under Settings, Connectors as a custom connector; that needs the public HTTPS URL and the OAuth profile, as for claude.ai below.
 
 ## claude.ai
 
@@ -64,37 +64,83 @@ claude.ai connects to remote servers over HTTPS and authenticates with OAuth, so
   "mcpServers": {
     "garmin": {
       "url": "http://localhost:8000/mcp",
-      "headers": { "Authorization": "Bearer <token>" }
+      "headers": { "Authorization": "Bearer ${env:GARMIN_MCP_TOKEN}" }
     }
   }
 }
 ```
 
-## pi
+`${env:NAME}` reads the token from your environment; a literal `"Bearer <token>"` works too. For the OAuth profile, use the public URL without `headers`; Cursor runs the browser login.
 
-In `~/.pi/agent/settings.json` (or a project's `.pi/settings.json`), under `mcpServers`:
+## VS Code (GitHub Copilot)
+
+The *MCP: Add Server* command writes the entry for you. By hand, in the workspace's `.vscode/mcp.json` (or the user profile's `mcp.json`), under `servers`:
+
+```json
+{
+  "servers": {
+    "garmin": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp",
+      "headers": { "Authorization": "Bearer ${env:GARMIN_MCP_TOKEN}" }
+    }
+  }
+}
+```
+
+The portable `.mcp.json` at the workspace root uses `mcpServers` instead, as the other clients do. VS Code's `${input:...}` prompts can hold the token instead of an environment variable.
+
+## OpenAI Codex CLI
+
+`~/.codex/config.toml` (or a trusted project's `.codex/config.toml`); the ChatGPT desktop app and the IDE extension share it:
+
+```toml
+[mcp_servers.garmin]
+url = "http://localhost:8000/mcp"
+bearer_token_env_var = "GARMIN_MCP_TOKEN"
+```
+
+`codex mcp add garmin --url http://localhost:8000/mcp` writes the entry; add the `bearer_token_env_var` line (or `http_headers = { "Authorization" = "Bearer <token>" }`) by hand. For a local stdio server, `command = "garmin-mcp"` with an optional `[mcp_servers.garmin.env]` table.
+
+## ChatGPT
+
+ChatGPT connects to remote servers only, over HTTPS, and authenticates with OAuth or not at all, so it needs the [OAuth profile](authentication.md#oauth-21-with-your-own-provider) behind a TLS reverse proxy. Turn on developer mode (Settings, Connectors, Advanced), then add a custom connector with `https://garmin.example.com/mcp` and OAuth as the authentication. Full MCP support in ChatGPT is still rolling out by plan; the server works like any other custom connector.
+
+## Gemini CLI
+
+`~/.gemini/settings.json` (user) or `.gemini/settings.json` (project):
 
 ```json
 {
   "mcpServers": {
     "garmin": {
-      "type": "http",
-      "url": "http://localhost:8000/mcp",
+      "httpUrl": "http://localhost:8000/mcp",
       "headers": { "Authorization": "Bearer <token>" }
     }
   }
 }
 ```
 
-pi exposes MCP servers to its codemode tool, so a session can batch several Garmin calls in one script.
+Or `gemini mcp add --transport http --header "Authorization: Bearer <token>" garmin http://localhost:8000/mcp`. Note the key is `httpUrl` (Streamable HTTP); `url` would mean the legacy SSE transport.
 
-## Anything else
+## Other clients
 
-Any MCP client that supports Streamable HTTP with a static header works the same way. For clients that only speak stdio, the `garmin-mcp` command is the stdio server (`MCP_TRANSPORT` defaults to `stdio` outside the image), and `mcp-remote` bridges stdio to the HTTP service.
+Any MCP client that supports Streamable HTTP with a static header works the same way; most use the `mcpServers` object with `url` and `headers`. For clients that only speak stdio, the `garmin-mcp` command is the stdio server (`MCP_TRANSPORT` defaults to `stdio` outside the image), and `mcp-remote` bridges stdio to the HTTP service with the bearer header.
 
-## First questions to ask
+### pi
 
-- "What does `garmin_sync_status` say about coverage?" tells you how far the backfill has come.
-- "Show my resting heart rate and HRV trend for the last 90 days" uses the mirror only.
-- "Run `SELECT activity_type, count(*), round(sum(distance)/1000) AS km FROM activity WHERE deleted_at IS NULL GROUP BY 1 ORDER BY 3 DESC` with `garmin_query`" answers in milliseconds and costs no Garmin request.
-- Every answer ends with a provenance line saying whether it came from the mirror (and how old it is), from Garmin just now, or is stale because Garmin could not be asked.
+In `~/.pi/agent/mcp.json` (user) or `.pi/mcp.json` (project), under `mcpServers`; `${NAME}` reads an environment variable:
+
+```json
+{
+  "mcpServers": {
+    "garmin": {
+      "url": "http://localhost:8000/mcp",
+      "headers": { "Authorization": "Bearer ${GARMIN_MCP_TOKEN}" },
+      "description": "Garmin Connect: activities, sleep, training and the DuckDB mirror behind them"
+    }
+  }
+}
+```
+
+Or `pi mcp add garmin --url http://localhost:8000/mcp --bearer-token-env-var GARMIN_MCP_TOKEN`, then `pi mcp list` to check the connection. pi exposes MCP servers to its codemode tool, so a session can batch several Garmin calls in one script; `description` is how it ranks the server's tools.
