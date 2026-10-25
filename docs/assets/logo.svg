@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="garmin-mirror-mcp">
+  <!-- A database cylinder with a heartbeat trace across it: the mirror and the data in it. Original mark; no third-party trademarks. -->
+  <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="32" cy="14" rx="22" ry="8"/>
+    <path d="M10 14v36c0 4.4 9.85 8 22 8s22-3.6 22-8V14"/>
+    <path d="M10 32c0 4.4 9.85 8 22 8s22-3.6 22-8"/>
+    <path d="M13 50h9l4-10 6 20 6-16 3 6h10" stroke-width="4.5"/>
+  </g>
+</svg>
