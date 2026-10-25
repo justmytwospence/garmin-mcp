@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-25
+
 ### Added
 
 - `STRAVA_DEFAULT_NAME_PATTERN`: the regular expression for Strava's automatic activity names, which the Strava sync never copies onto Garmin. The built-in pattern matches the English names ("Morning Run"); Strava localizes them, so accounts in other languages set their own. Validated at start and shown by `strava_sync_status`.
@@ -85,7 +87,8 @@ The first release meant for other people: a self-hosted compose stack with docum
 
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
-[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/justmytwospence/garmin-mcp/compare/v1.0.0...v1.0.1
