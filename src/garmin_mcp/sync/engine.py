@@ -26,7 +26,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -93,12 +93,15 @@ class SyncEngine:
         row = self.db.one("SELECT time_zone FROM user_profile LIMIT 1")
         return (row or {}).get("time_zone") or "UTC"
 
-    def today(self) -> date:
+    def zone(self) -> tzinfo:
+        """The profile's time zone (UTC until the profile is mirrored, or when its name is unknown here)."""
         try:
-            tz = ZoneInfo(self.time_zone())
+            return ZoneInfo(self.time_zone())
         except Exception:
-            tz = UTC
-        return datetime.now(tz).date()
+            return UTC
+
+    def today(self) -> date:
+        return datetime.now(self.zone()).date()
 
     def history_start(self) -> date | None:
         if self.history_start_env:

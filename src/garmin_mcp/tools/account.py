@@ -461,9 +461,10 @@ def register(reg: Registry) -> None:
         unit_key = unit_key.strip().lower()
         unit_key = "lbs" if unit_key == "lb" else unit_key
         if not date_timestamp and not gmt_timestamp:
-            now = datetime.now()
-            date_timestamp = now.strftime("%Y-%m-%dT%H:%M:%S")
-            gmt_timestamp = now.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+            # The local timestamp sets the day the weigh-in lands on: the profile's zone, not the container's clock.
+            now = datetime.now(UTC)
+            date_timestamp = now.astimezone(m.engine.zone()).strftime("%Y-%m-%dT%H:%M:%S")
+            gmt_timestamp = now.strftime("%Y-%m-%dT%H:%M:%S")
         elif not date_timestamp:
             raise ToolFailure("date_timestamp is required when gmt_timestamp is given: the local timestamp sets the day the weigh-in is recorded on.")
         day = date_timestamp[:10]
