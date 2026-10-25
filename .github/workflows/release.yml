@@ -1,4 +1,8 @@
-# Push a vX.Y.Z tag to publish ghcr.io/<owner>/<repo>:X.Y.Z, :X.Y and :X.
+# Push a vX.Y.Z tag to publish ghcr.io/<owner>/<repo>:X.Y.Z, :X.Y and :X, create the
+# GitHub Release with that version's CHANGELOG section as its notes, and publish
+# garmin-mirror-mcp to PyPI through trusted publishing (environment "pypi"; see
+# CONTRIBUTING.md). The PyPI job is allowed to fail so a missing publisher setup
+# never blocks the image or the release.
 name: release
 on:
   push:
@@ -35,3 +39,47 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  github-release:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      # The notes are the "## [X.Y.Z] - date" section of CHANGELOG.md for tag vX.Y.Z.
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## \[/ { if (found) exit; if ($2 == "[" v "]") { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::warning::CHANGELOG.md has no section for $version; the release links to the changelog instead"
+            echo "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)." > notes.md
+          fi
+          printf '\n\nImage: `ghcr.io/%s:%s`. Package: `uvx --from garmin-mirror-mcp==%s garmin-mcp`.\n' "$GITHUB_REPOSITORY" "$version" "$version" >> notes.md
+      - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  pypi:
+    needs: image
+    runs-on: ubuntu-latest
+    # Trusted publishing: the "pypi" environment and the PyPI publisher must exist
+    # (CONTRIBUTING.md); until they do, this job fails without failing the release.
+    continue-on-error: true
+    environment:
+      name: pypi
+      url: https://pypi.org/project/garmin-mirror-mcp/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.13.1"
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
