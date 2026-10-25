@@ -60,14 +60,14 @@ def test_polyline_start_and_distance():
     # Google's documented example: _p~iF~ps|U starts at (38.5, -120.2)
     assert polyline_start("_p~iF~ps|U_ulLnnqC_mqNvxq`@") == pytest.approx((38.5, -120.2))
     assert polyline_start(None) is None and polyline_start("_p~iF") is None
-    assert haversine_m((44.0, -121.3), (44.0, -121.3)) == 0
-    assert 1100 < haversine_m((44.0, -121.3), (44.01, -121.3)) < 1120
+    assert haversine_m((50.0, 9.7), (50.0, 9.7)) == 0
+    assert 1100 < haversine_m((50.0, 9.7), (50.01, 9.7)) < 1120
 
 
 def test_default_names():
     for n in ("Morning Run", "Lunch Ride", "Afternoon Trail Run", "Evening Weight Training", "Night Walk"):
         assert is_default_name(n)
-    for n in ("Shevlin", "Morning", "Maize", "Bend Trail Running"):
+    for n in ("Ridge Loop", "Morning", "Tempo", "Trail Running Club"):
         assert not is_default_name(n)
 
 
@@ -77,9 +77,9 @@ def act(i: int, name: str, offset_s: int = 0) -> tuple[StravaActivity, GarminAct
 
 
 def test_plan_titles_rules():
-    s1, g1 = act(1, "Shevlin")  # first sync: rename
+    s1, g1 = act(1, "Ridge Loop")  # first sync: rename
     s2, g2 = act(2, "Afternoon Run")  # Strava default: skipped
-    s3, g3 = act(3, "Pinkerton")  # unchanged since the last sync
+    s3, g3 = act(3, "Canal Path")  # unchanged since the last sync
     s4, g4 = act(4, "New name")  # Strava renamed again, Garmin still what we set: rename
     s5, g5 = act(5, "Another")  # Garmin edited by hand since: conflict
     s6, g6 = act(6, "Garmin 6")  # already equal: adopt
@@ -87,12 +87,12 @@ def test_plan_titles_rules():
     s8, g8 = act(8, "Late", offset_s=45)  # within 60 s: matched
     s9, g9 = act(9, "Too late", offset_s=90)  # beyond 60 s: unmatched
     links = {
-        103: TitleLink(103, 903, "Pinkerton", "Pinkerton"),
+        103: TitleLink(103, 903, "Canal Path", "Canal Path"),
         104: TitleLink(104, 904, "Old name", "Garmin 4"),
         105: TitleLink(105, 905, "Before", "Before"),
     }
     plan = plan_titles([s1, s2, s3, s4, s5, s6, s7, s8, s9], [g1, g2, g3, g4, g5, g6, g8, g9], links)
-    assert [(r.garmin_id, r.strava_name, r.first) for r in plan.renames] == [(901, "Shevlin", True), (904, "New name", False), (908, "Late", True)]
+    assert [(r.garmin_id, r.strava_name, r.first) for r in plan.renames] == [(901, "Ridge Loop", True), (904, "New name", False), (908, "Late", True)]
     assert [r.garmin_id for r in plan.conflicts] == [905]
     assert [r.garmin_id for r in plan.adopt] == [906]
     assert plan.skipped == {"no_garmin_activity": 2, "strava_default_name": 1, "unchanged": 1}
@@ -112,17 +112,17 @@ def course(cid: int, name: str, dist: float, start: tuple[float, float] | None, 
 
 def test_plan_courses():
     routes = [
-        StravaRoute(1, "Gray Butte", 10000.0, (44.4, -121.1)),
-        StravaRoute(2, "Renamed on Strava", 20000.0, (44.0, -121.3)),
-        StravaRoute(3, "Never synced", 5000.0, (45.0, -122.0)),
-        StravaRoute(4, "Linked", 7000.0, (46.0, -122.0)),
+        StravaRoute(1, "River Trail", 10000.0, (50.4, 9.9)),
+        StravaRoute(2, "Renamed on Strava", 20000.0, (50.0, 9.7)),
+        StravaRoute(3, "Never synced", 5000.0, (51.0, 9.0)),
+        StravaRoute(4, "Linked", 7000.0, (52.0, 9.0)),
     ]
     courses = [
-        course(10, "Gray Butte", 10010.0, (44.4, -121.1), days=1),
-        course(11, "Gray Butte", 10010.0, (44.4, -121.1), days=5),  # newer copy: kept, 10 is the duplicate
-        course(12, "Old name", 20150.0, (44.0005, -121.3005)),  # geometry match
-        course(13, "Unstarred route", 8000.0, (44.2, -121.2)),  # orphan
-        course(14, "Old name 2", 26000.0, (44.0, -121.3)),  # 30% longer: orphan
+        course(10, "River Trail", 10010.0, (50.4, 9.9), days=1),
+        course(11, "River Trail", 10010.0, (50.4, 9.9), days=5),  # newer copy: kept, 10 is the duplicate
+        course(12, "Old name", 20150.0, (50.0005, 9.6995)),  # geometry match
+        course(13, "Unstarred route", 8000.0, (50.2, 9.8)),  # orphan
+        course(14, "Old name 2", 26000.0, (50.0, 9.7)),  # 30% longer: orphan
         course(15, "Mine", 1000.0, None, consumer=None),  # made in Garmin: untouched
         course(16, "Ride with GPS", 1000.0, None, consumer=OTHER),  # another app: untouched
         course(17, "Whatever it is called now", 1.0, None),  # linked by an earlier run
@@ -134,15 +134,15 @@ def test_plan_courses():
 
 
 def test_plan_courses_prefers_a_name_match_over_a_newer_geometry_match():
-    routes = [StravaRoute(1, "10.21 mi Sisters Trail Run Route", 16430.0, (44.29, -121.55))]
+    routes = [StravaRoute(1, "10.21 mi Hill Trail Run Route", 16430.0, (50.29, 9.45))]
     courses = [
-        course(20, "10.21 mi Sisters Trail Run Route", 16430.0, (44.29, -121.55), days=0),
-        course(21, "10.24 mi Sisters Trail Run Route", 16488.0, (44.2901, -121.5501), days=1),
+        course(20, "10.21 mi Hill Trail Run Route", 16430.0, (50.29, 9.45), days=0),
+        course(21, "10.24 mi Hill Trail Run Route", 16488.0, (50.2901, 9.4499), days=1),
     ]
     plan = plan_courses(courses, routes, STRAVA_COURSE_CONSUMERS)
     assert [d.course_id for d in plan.keep] == [20] and [d.course_id for d in plan.delete] == [21]
     # an edited route: Strava's newer same-name copy replaces the linked older one
-    plan = plan_courses([course(30, "Caves", 14280.0, None, days=0), course(31, "Caves", 15826.0, None, days=14)], [StravaRoute(2, "Caves", 15826.0, None)], STRAVA_COURSE_CONSUMERS, {30: 2})
+    plan = plan_courses([course(30, "Quarry", 14280.0, None, days=0), course(31, "Quarry", 15826.0, None, days=14)], [StravaRoute(2, "Quarry", 15826.0, None)], STRAVA_COURSE_CONSUMERS, {30: 2})
     assert [d.course_id for d in plan.keep] == [31] and [d.course_id for d in plan.delete] == [30]
 
 
@@ -249,13 +249,13 @@ def test_titles_run_renames_then_respects_hand_edits(world):
     assert len(acts) >= 3
     a, b, c = acts[-1], acts[-2], acts[-3]
     world.snapshot(activities=[
-        {"id": 1, "name": "Shevlin", "start": a["start_time_gmt"]},
+        {"id": 1, "name": "Ridge Loop", "start": a["start_time_gmt"]},
         {"id": 2, "name": "Afternoon Run", "start": b["start_time_gmt"]},
         {"id": 3, "name": c["activity_name"], "start": c["start_time_gmt"]},
     ])
     r = world.sync.run()
-    assert [x["strava_name"] for x in r["titles"]["renamed"]] == ["Shevlin"]
-    assert world.puts() == [(f"/activity-service/activity/{a['activity_id']}", {"activityId": a["activity_id"], "activityName": "Shevlin"})]
+    assert [x["strava_name"] for x in r["titles"]["renamed"]] == ["Ridge Loop"]
+    assert world.puts() == [(f"/activity-service/activity/{a['activity_id']}", {"activityId": a["activity_id"], "activityName": "Ridge Loop"})]
     assert r["titles"]["adopted"] == 1 and r["titles"]["skipped"] == {"strava_default_name": 1}
     # nothing new: no write
     world.transport.writes.clear()
@@ -264,7 +264,7 @@ def test_titles_run_renames_then_respects_hand_edits(world):
     # renamed by hand on Garmin, then renamed again on Strava: left alone, reported once
     world.transport.by_type["activity_summary"][str(a["activity_id"])]["activityName"] = "My own name"
     world.transport.by_type.setdefault("activity", {})[str(a["activity_id"])] = {"activityId": a["activity_id"], "activityName": "My own name"}
-    world.snapshot(activities=[{"id": 1, "name": "Shevlin loop", "start": a["start_time_gmt"]}])
+    world.snapshot(activities=[{"id": 1, "name": "Ridge Loop long", "start": a["start_time_gmt"]}])
     r = world.sync.run()
     assert world.puts() == [] and [x["garmin_id"] for x in r["titles"]["conflicts"]] == [a["activity_id"]]
     r = world.sync.run()
@@ -291,15 +291,15 @@ def test_titles_since_defaults_to_first_run(world):
     assert r["titles"]["renamed"] == [] and world.engine.get_state("strava_sync:titles_since") == "2026-10-30"
 
 
-ROUTES = [{"id": 1, "name": "Gray Butte", "distance": 10000.0}, {"id": 2, "name": "Lava Castle", "distance": 12000.0}]
+ROUTES = [{"id": 1, "name": "River Trail", "distance": 10000.0}, {"id": 2, "name": "Lake Circuit", "distance": 12000.0}]
 
 
 def courses_world(env: dict[str, str]) -> World:
     courses = [
-        garmin_course(10, "Gray Butte", 10000.0, 44.4, -121.1),
-        garmin_course(11, "Unstarred", 8000.0, 44.2, -121.2),
-        garmin_course(12, "Also unstarred", 9000.0, 44.3, -121.2),
-        garmin_course(13, "Made in Garmin", 9000.0, 44.3, -121.2, consumer=None),
+        garmin_course(10, "River Trail", 10000.0, 50.4, 9.9),
+        garmin_course(11, "Unstarred", 8000.0, 50.2, 9.8),
+        garmin_course(12, "Also unstarred", 9000.0, 50.3, 9.8),
+        garmin_course(13, "Made in Garmin", 9000.0, 50.3, 9.8, consumer=None),
     ]
     return World({"STRAVA_SYNC": "courses", **env}, courses=courses)
 
@@ -438,13 +438,13 @@ def test_export_source_reads_strava_mcp():
     srv = ExportServer()
     try:
         cfg = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles,courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret"})
-        srv.body["starred_routes"] = [{"id": "3548464556455591588", "name": "Gray Butte", "distance": 10000.5, "start": [44.4, -121.1]}, {"id": "7", "name": "No map", "distance": None, "start": None}]
-        srv.body["activities"] = [{"id": "20717784937", "name": "Maize", "start_date": "2026-10-24T21:00:00.000Z", "elapsed_time": 900}]
+        srv.body["starred_routes"] = [{"id": "9007199254740993", "name": "River Trail", "distance": 10000.5, "start": [50.4, 9.9]}, {"id": "7", "name": "No map", "distance": None, "start": None}]
+        srv.body["activities"] = [{"id": "90000000001", "name": "Tempo", "start_date": "2026-10-24T21:00:00.000Z", "elapsed_time": 900}]
         from garmin_mcp.strava_sync.source import SourceUnavailable, StravaExport
 
         data = StravaExport(cfg).read(datetime(2026, 10, 1, tzinfo=UTC))
-        assert [r.id for r in data.starred_routes] == [3548464556455591588, 7] and data.starred_routes[0].start == (44.4, -121.1)
-        assert data.activities[0].start == datetime(2026, 10, 24, 21, 0, tzinfo=UTC) and data.activities[0].name == "Maize"
+        assert [r.id for r in data.starred_routes] == [9007199254740993, 7] and data.starred_routes[0].start == (50.4, 9.9)
+        assert data.activities[0].start == datetime(2026, 10, 24, 21, 0, tzinfo=UTC) and data.activities[0].name == "Tempo"
         assert "since=2026-10-01" in srv.requests[-1][0] and srv.requests[-1][1] == "Bearer secret"
         bad = StravaSyncConfig.from_env({"STRAVA_SYNC": "titles", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "wrong"})
         with pytest.raises(SourceUnavailable, match="401"):
@@ -463,10 +463,10 @@ def course_list_requests(w: World) -> int:
 def test_course_list_is_fetched_only_when_it_could_matter():
     srv = ExportServer()
     w = World({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret"},
-              courses=[garmin_course(10, "Gray Butte", 10000.0, 44.4, -121.1), garmin_course(11, "Unstarred", 8000.0, 44.2, -121.2)])
+              courses=[garmin_course(10, "River Trail", 10000.0, 50.4, 9.9), garmin_course(11, "Unstarred", 8000.0, 50.2, 9.8)])
     try:
         w.sync.config = StravaSyncConfig.from_env({"STRAVA_SYNC": "courses", "STRAVA_EXPORT_URL": srv.url, "STRAVA_SNAPSHOT_TOKEN": "secret"})
-        srv.body["starred_routes"] = [{"id": "1", "name": "Gray Butte", "distance": 10000.0, "start": [44.4, -121.1]}, {"id": "2", "name": "Unstarred", "distance": 8000.0, "start": [44.2, -121.2]}]
+        srv.body["starred_routes"] = [{"id": "1", "name": "River Trail", "distance": 10000.0, "start": [50.4, 9.9]}, {"id": "2", "name": "Unstarred", "distance": 8000.0, "start": [50.2, 9.8]}]
         w.sync.run()
         assert course_list_requests(w) == 1
         w.sync.run()
