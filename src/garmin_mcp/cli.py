@@ -48,6 +48,19 @@ class Runtime:
         self.db.close()
 
 
+def default_db_path(env: dict[str, str] | None = None) -> str:
+    """Where the mirror lives when GARMIN_DB_PATH is unset: the user's data directory
+    (the image sets GARMIN_DB_PATH=/data/garmin.duckdb)."""
+    env = os.environ if env is None else env
+    if sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    elif sys.platform == "win32":
+        base = Path(env.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    else:
+        base = Path(env.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return str(base / "garmin-mcp" / "garmin.duckdb")
+
+
 def validate_settings(env: dict[str, str]) -> None:
     """Parse every setting that can be wrong, so a bad value is one line on stderr, not a traceback."""
     ToolFilter.from_env(env)
@@ -69,7 +82,7 @@ def validate_settings(env: dict[str, str]) -> None:
 
 def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Runtime:
     env = os.environ if env is None else env
-    db_path = env.get("GARMIN_DB_PATH") or "./state/garmin.duckdb"
+    db_path = env.get("GARMIN_DB_PATH") or default_db_path(env)
     data_dir = str(Path(db_path).resolve().parent)
     snapshot_dir = env.get("GARMIN_SNAPSHOT_DIR") or str(Path(data_dir) / "snapshot")
     threads = env_int("DUCKDB_THREADS", 0, env, minimum=1)
@@ -127,6 +140,8 @@ def serve(args: argparse.Namespace) -> int:
             host = env.get("MCP_HOST") or "0.0.0.0"
             allowed = [h.strip() for h in (env.get("MCP_ALLOWED_HOSTS") or "").split(",") if h.strip()]
             mcp_token = env.get("MCP_BEARER_TOKEN") or ""
+            if not mcp_token:
+                log.warning("MCP_BEARER_TOKEN is not set: anyone who can reach http://%s:%d/mcp can read this account's data and write to it. Set it, or bind MCP_HOST to a private address.", host, port)
             app = build_app(
                 server,
                 snapshot=rt.snapshot,

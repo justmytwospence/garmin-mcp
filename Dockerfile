@@ -19,6 +19,10 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=8000 \
     GARMIN_DB_PATH=/data/garmin.duckdb \
     GARMINTOKENS=/data/tokens \
+    # Where download_activity_file and download_course_gpx save files, and where
+    # set_fit_download_dir keeps its setting: on the volume, so they survive a restart.
+    GARMIN_FIT_DOWNLOAD_DIR=/data/downloads \
+    GARMIN_FIT_CONFIG=/data/fit_config.json \
     # DuckDB otherwise sizes its buffer pool to 80% of host RAM and the container gets
     # OOM-killed. Peak RSS is about 100 MB + this limit + 300 MB of transient parsing
     # memory, so 512 MB fits a 1.5 GB container (see docs/operations.md).
