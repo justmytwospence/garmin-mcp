@@ -1,6 +1,6 @@
 # Authentication
 
-Two different things need authenticating: the server to Garmin (the one-time `garmin-mcp-auth` login, covered in the [quickstart](quickstart.md#2-log-in-once) and [troubleshooting](operations.md#login-problems)), and MCP clients to the server, which this page is about.
+Two different things need authenticating: the server to Garmin (the one-time `garmin-mcp-auth` login, covered in the [quickstart](quickstart.md#2-log-in-once) and [troubleshooting](troubleshooting.md#login-problems)), and MCP clients to the server, which this page is about.
 
 The server itself knows one mechanism: a static bearer token on `/mcp`. For anything beyond a trusted network (claude.ai, a phone, sharing a host), put the OAuth profile in front of it.
 
@@ -12,7 +12,7 @@ With `MCP_BEARER_TOKEN` set, every request to `/mcp` (and `/`) must carry `Autho
 
 Behind a reverse proxy, also set `MCP_ALLOWED_HOSTS` to the hostname(s) clients use: the SDK then refuses requests whose `Host` header names anything else (DNS-rebinding protection) and only `localhost`/`127.0.0.1` stay implicitly allowed.
 
-Bearer tokens suit clients you configure yourself (Claude Code, Claude Desktop, Cursor, pi, scripts). They do not suit claude.ai or other hosted clients, which expect to discover an OAuth authorization server and run a browser login; for those, read on.
+Bearer tokens suit clients you configure yourself (Claude Code, Cursor, VS Code, Codex, Gemini CLI, pi, scripts). They do not suit claude.ai, ChatGPT or other hosted clients, which expect to discover an OAuth authorization server and run a browser login; for those, read on.
 
 ## OAuth 2.1 with your own provider
 
@@ -89,7 +89,8 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://garmin.example.com/mcp 
 
 | | Bearer token | OAuth profile |
 |---|---|---|
-| Claude Code, Cursor, pi, Claude Desktop (stdio or HTTP) | yes | yes |
-| claude.ai, other hosted clients | no | yes |
+| Claude Code, Cursor, VS Code, Codex, Gemini CLI, pi (HTTP with a header) | yes | yes |
+| Claude Desktop (local stdio server) | not needed | not needed |
+| claude.ai, ChatGPT, Claude Desktop connectors, other hosted clients | no | yes |
 | Several people, revocation, 2FA | no | through the provider |
 | Moving parts | none | agentgateway, an OIDC provider, a TLS proxy |
