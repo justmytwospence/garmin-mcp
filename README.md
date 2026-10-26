@@ -62,7 +62,7 @@ uvx --from garmin-mirror-mcp garmin-mcp              # stdio server, for Claude 
 MCP_TRANSPORT=http MCP_BEARER_TOKEN=... uvx --from garmin-mirror-mcp garmin-mcp   # or Streamable HTTP
 ```
 
-`uv tool install garmin-mirror-mcp` puts both commands on your PATH; pin a release with `garmin-mirror-mcp==1.4.1`. The mirror lives in your user data directory (`~/.local/share/garmin-mcp`, `~/Library/Application Support/garmin-mcp`) unless `GARMIN_DB_PATH` says otherwise.
+`uv tool install garmin-mirror-mcp` puts both commands on your PATH; pin a release with `garmin-mirror-mcp==1.4.2`. The mirror lives in your user data directory (`~/.local/share/garmin-mcp`, `~/Library/Application Support/garmin-mcp`) unless `GARMIN_DB_PATH` says otherwise.
 
 ## Things you can ask
 
