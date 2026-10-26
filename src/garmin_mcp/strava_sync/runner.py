@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from ..db.raw import current
 from ..garmin.client import NotFound, Priority
 from ..garmin.datasets import dataset
 from .config import StravaSyncConfig
@@ -238,10 +239,10 @@ class StravaSync:
     def _current_name(self, garmin_id: int, priority: Priority) -> str | None:
         """The activity's name on Garmin right now (fetched, so a hand edit since the last mirror refresh is seen)."""
         self.engine.fetch.activity_sub(dataset("activity"), str(garmin_id), priority=priority)
-        row = self.db.one("SELECT status, body->>'activityName' AS name FROM raw_current WHERE object_type = 'activity' AND object_key = ?", [str(garmin_id)])
-        if row is None or row["status"] != "ok":
+        row = current(self.db, "activity", str(garmin_id))
+        if row is None or row["status"] != "ok" or row["body"] is None:
             raise NotFound(f"activity {garmin_id} not found", 404)
-        return row["name"]
+        return json.loads(row["body"]).get("activityName")
 
     def _apply_titles(self, plan: TitlePlan, priority: Priority, *, capped: bool) -> dict[str, Any]:
         links = self._title_links()

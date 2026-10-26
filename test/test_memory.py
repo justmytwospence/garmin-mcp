@@ -53,6 +53,37 @@ def test_projecting_one_activity_does_not_read_every_stored_detail(fixtures):
         db.close()
 
 
+def test_landing_summaries_between_large_payloads_stays_under_the_limit(fixtures):
+    """The list_recent path on a real mirror: small summaries stored in the same vectors as
+    megabyte activity details. Scanning raw_payload for the summaries' bodies read every
+    co-located detail too (a 20-row projection went past a 1.5 GB limit); staging the
+    bodies by hash reads only the rows asked for."""
+    summary = next(f for f in fixtures if f["type"] == "activity_summary")
+    detail = next(f for f in fixtures if f["type"] == "activity")
+    chart = next(f for f in fixtures if f["type"] == "activity_details")
+    pad = {f"unmapped_padding_{j}": "x" * 1000 for j in range(1000)}  # ~1 MB, like real chart details
+    tmp = Path(tempfile.mkdtemp(prefix="garmin-mcp-mem-"))
+    db = Database.open(DatabaseOptions(str(tmp / "garmin.duckdb"), str(tmp / "snapshot")))
+    with db.transaction() as tx:
+        for i in range(240):
+            aid = str(30_000 + i)
+            land_many(tx, "activity_summary", [(aid, json.dumps(dict(summary["body"], activityId=30_000 + i)))])
+            land_many(tx, "activity_details", [(aid, json.dumps(dict(chart["body"], activityId=30_000 + i, **pad)))])
+            land_many(tx, "activity", [(aid, json.dumps(dict(detail["body"], activityId=30_000 + i)))])
+    db.close()
+    db = Database.open(DatabaseOptions(str(tmp / "garmin.duckdb"), str(tmp / "snapshot"), memory_limit="384MB", threads=2))
+    try:
+        page = [(str(30_000 + i), json.dumps(dict(summary["body"], activityId=30_000 + i, activityName=f"Renamed {i}"))) for i in range(20)]
+        with db.transaction() as tx:
+            assert len(land_many(tx, "activity_summary", page)) == 20
+        assert db.one("SELECT count(*) AS n FROM activity WHERE activity_name LIKE 'Renamed %'")["n"] == 20
+        from garmin_mcp.db.raw import current
+
+        assert json.loads(current(db, "activity_summary", "30005")["body"])["activityName"] == "Renamed 5"
+    finally:
+        db.close()
+
+
 def _scans(node: dict) -> list[dict]:
     out = [node] if node.get("name") in ("SEQ_SCAN", "TABLE_SCAN") else []
     for child in node.get("children", []):

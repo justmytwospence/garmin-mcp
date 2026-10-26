@@ -8,6 +8,7 @@ transaction on the writer connection; the keys in scope sit in the temp table _s
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
@@ -18,17 +19,113 @@ from .tables import table
 SCOPE = "(SELECT object_key FROM _scope)"
 
 
-def scoped_raw(type_: str) -> str:
-    """raw_current restricted to the scoped keys of one type, with the scope on both sides of the join.
+# Payload bodies are read through tokens that project() expands. Scanning raw_payload for
+# a body costs far more than the rows involved: DuckDB reads the body column a whole
+# 2,048-row vector at a time, and small payloads share vectors with activity details of a
+# megabyte each, so one scoped projection (the activity one joins three such scans) went
+# past a 1.5 GB memory limit while touching 20 rows. When the keys are known, project()
+# stages the bodies it needs with primary-key point lookups, which read only the rows asked
+# for, and the tokens become reads of that small temp table. A whole-type rebuild
+# (keys=None, the migrations) keeps the set-based SQL.
+_TOKEN = re.compile(r"\x01([SAHL]):([a-z0-9_]+)(?::([a-z_]+))?\x01")
 
-    Not the raw_current view: its scope filter reaches only raw_latest, so the join would
-    build a hash table over every stored body of the type (activity details are ~1 MB each).
-    """
-    return (
-        "(SELECT l.object_type, l.object_key, l.status, l.checked_at, p.fetched_at, p.body"
-        f" FROM (SELECT * FROM raw_latest WHERE object_type = '{type_}' AND object_key IN {SCOPE}) l"
-        f" LEFT JOIN (SELECT * FROM raw_payload WHERE object_type = '{type_}' AND object_key IN {SCOPE}) p"
-        " USING (object_type, object_key, content_hash))"
+
+def scoped_raw(type_: str) -> str:
+    """The current payload (or not_found status) of the scoped keys of one type: object_type, object_key, status, checked_at, fetched_at, body."""
+    return f"\x01S:{type_}\x01"
+
+
+def all_raw(type_: str) -> str:
+    """Every current payload of one type with a body (raw_current's columns), for projections that rebuild from the whole type."""
+    return f"\x01A:{type_}\x01"
+
+
+def last_body(type_: str, alias: str) -> str:
+    """The newest stored body of {alias}.object_key, even when its current status is not_found."""
+    return f"\x01L:{type_}:{alias}\x01"
+
+
+def history(type_: str) -> str:
+    """Every stored version of every object of one type: object_key, fetched_at, body."""
+    return f"\x01H:{type_}\x01"
+
+
+def _legacy(kind: str, type_: str, alias: str | None) -> str:
+    if kind == "S":
+        # The scope on both sides of the join: the raw_current view's scope filter reaches
+        # only raw_latest, so its join would hash every stored body of the type.
+        return (
+            "(SELECT l.object_type, l.object_key, l.status, l.checked_at, p.fetched_at, p.body"
+            f" FROM (SELECT * FROM raw_latest WHERE object_type = '{type_}' AND object_key IN {SCOPE}) l"
+            f" LEFT JOIN (SELECT * FROM raw_payload WHERE object_type = '{type_}' AND object_key IN {SCOPE}) p"
+            " USING (object_type, object_key, content_hash))"
+        )
+    if kind == "A":
+        return f"(SELECT * FROM raw_current WHERE object_type = '{type_}' AND body IS NOT NULL)"
+    if kind == "L":
+        return f"(SELECT p.body FROM raw_payload p WHERE p.object_type = '{type_}' AND p.object_key = {alias}.object_key ORDER BY p.fetched_at DESC LIMIT 1)"
+    return f"(SELECT object_key, fetched_at, body FROM raw_payload WHERE object_type = '{type_}')"
+
+
+def _staged(kind: str, type_: str, alias: str | None) -> str:
+    if kind == "L":
+        return f"(SELECT g.body FROM _staged g WHERE g.kind = 'L' AND g.object_type = '{type_}' AND g.object_key = {alias}.object_key)"
+    if kind == "H":
+        return f"(SELECT object_key, fetched_at, body FROM _staged WHERE kind = 'H' AND object_type = '{type_}')"
+    return f"(SELECT object_type, object_key, status, checked_at, fetched_at, body FROM _staged WHERE kind = '{kind}' AND object_type = '{type_}')"
+
+
+def expand(sql: str, staged: bool) -> str:
+    """Replace the payload tokens of one statement by reads of _staged (staged) or the set-based SQL."""
+    render = _staged if staged else _legacy
+    return _TOKEN.sub(lambda m: render(m.group(1), m.group(2), m.group(3)), sql)
+
+
+def tokens(statements: Sequence[str]) -> set[tuple[str, str]]:
+    return {(m.group(1), m.group(2)) for sql in statements for m in _TOKEN.finditer(sql)}
+
+
+def stage(tx: Tx, needs: set[tuple[str, str]]) -> None:
+    """Fill _staged with the payloads the tokens of a scoped projection read, by primary-key lookups."""
+    tx.run(
+        "CREATE OR REPLACE TEMP TABLE _staged (kind VARCHAR, object_type VARCHAR, object_key VARCHAR, status VARCHAR, "
+        "checked_at TIMESTAMPTZ, fetched_at TIMESTAMPTZ, body JSON)"
+    )
+    # (kind, type, key, status, checked_at, fetched_at, content_hash): no body is read here.
+    meta: list[tuple[str, str, str, str | None, object, object, str | None]] = []
+    for kind, type_ in sorted(needs):
+        if kind == "S":
+            rows = tx.all(
+                f"SELECT object_key, status, checked_at, fetched_at, content_hash FROM raw_latest WHERE object_type = ? AND object_key IN {SCOPE}", [type_]
+            )
+        elif kind == "A":
+            rows = tx.all("SELECT object_key, status, checked_at, fetched_at, content_hash FROM raw_latest WHERE object_type = ? AND status = 'ok'", [type_])
+        elif kind == "L":
+            rows = tx.all(
+                "SELECT object_key, NULL AS status, NULL AS checked_at, max(fetched_at) AS fetched_at, arg_max(content_hash, fetched_at) AS content_hash "
+                f"FROM raw_payload WHERE object_type = ? AND object_key IN {SCOPE} GROUP BY object_key",
+                [type_],
+            )
+        else:
+            rows = tx.all("SELECT object_key, NULL AS status, NULL AS checked_at, fetched_at, content_hash FROM raw_payload WHERE object_type = ?", [type_])
+        meta += [(kind, type_, r["object_key"], r["status"], r["checked_at"], r["fetched_at"], r["content_hash"]) for r in rows]
+    if not meta:
+        return
+    # The body is a function of its hash, so any row with the hash has it; the
+    # single-column index on content_hash makes each lookup a point read.
+    bodies: dict[str, str | None] = {}
+    for *_, h in meta:
+        if h is not None and h not in bodies:
+            bodies[h] = tx.scalar("SELECT body FROM raw_payload WHERE content_hash = ? LIMIT 1", [h])
+    cols: list[list[object]] = [[], [], [], [], [], [], []]
+    for kind, type_, key, status, checked_at, fetched_at, h in meta:
+        body = bodies.get(h) if h is not None else None
+        for i, v in enumerate((kind, type_, key, status, checked_at, fetched_at if body is not None else None, body)):
+            cols[i].append(v)
+    tx.run(
+        "INSERT INTO _staged SELECT unnest(?::VARCHAR[]), unnest(?::VARCHAR[]), unnest(?::VARCHAR[]), unnest(?::VARCHAR[]), "
+        "unnest(?::TIMESTAMPTZ[]), unnest(?::TIMESTAMPTZ[]), unnest(?::VARCHAR[])::JSON",
+        cols,
     )
 
 
@@ -94,6 +191,16 @@ class Projection:
     type: str
     statements: list[str]
     shapes: list[Shape] = field(default_factory=list)
+    needs: set[tuple[str, str]] = field(default_factory=set)
+    _expanded: dict[bool, list[str]] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        self.needs = tokens(self.statements)
+
+    def expanded(self, staged: bool) -> list[str]:
+        if staged not in self._expanded:
+            self._expanded[staged] = [expand(sql, staged) for sql in self.statements]
+        return self._expanded[staged]
 
 
 # How many of the newest payloads of a type the drift check parses. New fields show up in
@@ -179,7 +286,7 @@ ACTIVITY_SOURCE = f"""(
     coalesce(s.fetched_at, d.fetched_at) AS fetched_at,
     CASE WHEN s.status = 'not_found' OR d.status = 'not_found'
       THEN greatest(CASE WHEN s.status = 'not_found' THEN s.checked_at END, CASE WHEN d.status = 'not_found' THEN d.checked_at END) END AS deleted_at
-  FROM (SELECT l.*, coalesce(l.body, (SELECT p.body FROM raw_payload p WHERE p.object_type = 'activity_summary' AND p.object_key = l.object_key ORDER BY p.fetched_at DESC LIMIT 1)) AS last_body
+  FROM (SELECT l.*, coalesce(l.body, {last_body('activity_summary', 'l')}) AS last_body
         FROM {scoped_raw('activity_summary')} l) s
   FULL JOIN {scoped_raw('activity')} d USING (object_key)
 ) src WHERE b IS NOT NULL"""
@@ -538,13 +645,13 @@ us = T("user_settings")
 add("user_settings", ["DELETE FROM user_settings", insert(us, f"(SELECT r.fetched_at, r.body AS b FROM {current('user_settings')}) src")], [Shape(sampled("user_settings"), known(us))])
 
 up = T("user_profile")
-PROFILE_SOURCE = """(
+PROFILE_SOURCE = f"""(
   SELECT greatest(coalesce(s.fetched_at, b.fetched_at), coalesce(b.fetched_at, s.fetched_at), coalesce(i.fetched_at, s.fetched_at), coalesce(p.fetched_at, s.fetched_at)) AS fetched_at,
          s.body AS settings, b.body AS base, i.body AS info, p.body AS privacy
-  FROM (SELECT * FROM raw_current WHERE object_type = 'userprofile_settings' AND body IS NOT NULL) s
-  FULL JOIN (SELECT * FROM raw_current WHERE object_type = 'user_profile_base' AND body IS NOT NULL) b ON true
-  LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'personal_information' AND body IS NOT NULL) i ON true
-  LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'privacy_settings' AND body IS NOT NULL) p ON true
+  FROM {all_raw('userprofile_settings')} s
+  FULL JOIN {all_raw('user_profile_base')} b ON true
+  LEFT JOIN {all_raw('personal_information')} i ON true
+  LEFT JOIN {all_raw('privacy_settings')} p ON true
 ) src WHERE base IS NOT NULL"""
 for _t in ("userprofile_settings", "user_profile_base", "personal_information", "privacy_settings"):
     add(_t, ["DELETE FROM user_profile", insert(up, PROFILE_SOURCE)], [Shape(sampled(_t), None)])
@@ -558,7 +665,7 @@ for _t, _hist in (("devices", "false"), ("historical_devices", "true")):
             upsert(dev, f"(SELECT r.fetched_at, {_hist} AS historical, unnest(CAST(r.body AS JSON[])) AS b FROM {current(_t)}) src", lambda c: True)
             if _t == "devices"
             else insert(dev, f"(SELECT r.fetched_at, {_hist} AS historical, unnest(CAST(r.body AS JSON[])) AS b FROM {current(_t)}) src", conflict="OR IGNORE"),
-            "UPDATE device SET historical = false WHERE device_id IN (SELECT TRY_CAST(o->>'deviceId' AS BIGINT) FROM (" + objects("devices", "$[*]") + "))",
+            f"UPDATE device SET historical = false WHERE device_id IN (SELECT TRY_CAST(o->>'deviceId' AS BIGINT) FROM (SELECT unnest(TRY_CAST(body AS JSON[])) AS o FROM {all_raw('devices')}))",
         ],
         [Shape(sampled(_t, "$[*]"), None)],
     )
@@ -573,10 +680,10 @@ sens = T("sensor")
 add("sensors", ["DELETE FROM sensor", insert(sens, f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {current('sensors')}) src")], [Shape(sampled("sensors", "$[*]"), known(sens))])
 
 gear = T("gear")
-GEAR_SOURCE = """(
+GEAR_SOURCE = f"""(
   SELECT g.fetched_at, g.b, s.body AS stats
-  FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM (SELECT * FROM raw_current WHERE object_type = 'gear' AND body IS NOT NULL) r) g
-  LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'gear_stats' AND body IS NOT NULL) s ON s.object_key = (g.b->>'uuid')
+  FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {all_raw('gear')} r) g
+  LEFT JOIN {all_raw('gear_stats')} s ON s.object_key = (g.b->>'uuid')
 ) src"""
 add("gear", ["DELETE FROM gear", insert(gear, GEAR_SOURCE)], [Shape(sampled("gear", "$[*]"), None)])
 add("gear_stats", [insert(gear, GEAR_SOURCE)], [Shape(sampled("gear_stats"), None)])
@@ -617,10 +724,10 @@ for _t, _kind in (("user_goals", "user"), ("goals_active", "active"), ("goals_pa
     )
 
 wk = T("workout")
-WORKOUT_SOURCE = """(
+WORKOUT_SOURCE = f"""(
   SELECT w.fetched_at, w.b, d.body AS detail
-  FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM (SELECT * FROM raw_current WHERE object_type = 'workouts' AND body IS NOT NULL) r) w
-  LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'workout' AND body IS NOT NULL) d ON d.object_key = (w.b->>'workoutId')
+  FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {all_raw('workouts')} r) w
+  LEFT JOIN {all_raw('workout')} d ON d.object_key = (w.b->>'workoutId')
 ) src"""
 add("workouts", ["DELETE FROM workout", insert(wk, WORKOUT_SOURCE)], [Shape(sampled("workouts", "$[*]"), None)])
 add("workout", [insert(wk, WORKOUT_SOURCE)], [Shape(sampled("workout"), None)])
@@ -636,13 +743,28 @@ add(
 )
 
 course = T("course")
-COURSE_SOURCE = """(
+_COURSE_LIST = f"(SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM {all_raw('courses')} r)"
+_course_detail = {"detail", "detail_fetched_at"}
+# The list rebuilds the list-derived columns only: course details are large (every geo
+# point), and rereading all of them whenever the list changed is what a projection must not do.
+COURSE_LIST_SOURCE = f"(SELECT c.fetched_at, c.b FROM {_COURSE_LIST} c) src"
+# A detail updates its own course, read with its list element.
+COURSE_SOURCE = f"""(
   SELECT c.fetched_at, c.b, d.body AS detail, d.checked_at AS detail_fetched_at
-  FROM (SELECT r.fetched_at, unnest(CAST(r.body AS JSON[])) AS b FROM (SELECT * FROM raw_current WHERE object_type = 'courses' AND body IS NOT NULL) r) c
-  LEFT JOIN (SELECT * FROM raw_current WHERE object_type = 'course' AND body IS NOT NULL) d ON d.object_key = (c.b->>'courseId')
+  FROM {_COURSE_LIST} c
+  JOIN (SELECT * FROM {scoped_raw('course')} WHERE body IS NOT NULL) d ON d.object_key = (c.b->>'courseId')
 ) src"""
-add("courses", ["DELETE FROM course", insert(course, COURSE_SOURCE)], [Shape(sampled("courses", "$[*]"), None)])
-add("course", [insert(course, COURSE_SOURCE)], [Shape(sampled("course"), None)])
+add(
+    "courses",
+    [
+        f"DELETE FROM course WHERE course_id NOT IN (SELECT TRY_CAST(c.b->>'courseId' AS BIGINT) FROM {_COURSE_LIST} c WHERE c.b->>'courseId' IS NOT NULL)",
+        upsert(course, COURSE_LIST_SOURCE, lambda c: c.name not in _course_detail),
+    ],
+    [Shape(sampled("courses", "$[*]"), None)],
+)
+# Delete and insert rather than INSERT OR REPLACE: the conflict path costs over a gigabyte
+# on this table (its rows carry the whole detail), a plain insert a few megabytes.
+add("course", [delete_scope("course", "course_id", "::BIGINT"), insert(course, COURSE_SOURCE, conflict="")], [Shape(sampled("course"), None)])
 
 tp = T("training_plan")
 add("training_plans", ["DELETE FROM training_plan", insert(tp, f"(SELECT r.fetched_at, unnest(CAST(r.body->'trainingPlanList' AS JSON[])) AS b FROM {current('training_plans')}) src")], [Shape(sampled("training_plans"), {"trainingPlanList", "searchFilter"})])
@@ -653,7 +775,7 @@ add("calendar_events", ["DELETE FROM calendar_event", insert(ce, f"(SELECT r.fet
 rp = T("race_prediction")
 add(
     "race_predictions",
-    ["DELETE FROM race_prediction", insert(rp, "(SELECT p.fetched_at, p.body AS b FROM raw_payload p WHERE p.object_type = 'race_predictions') src")],
+    ["DELETE FROM race_prediction", insert(rp, f"(SELECT p.fetched_at, p.body AS b FROM {history('race_predictions')} p) src")],
     [Shape(sampled("race_predictions"), known(rp, extra=["userId", "fromCalendarDate", "toCalendarDate"]))],
 )
 
@@ -670,7 +792,11 @@ PROJECTION_BY_TYPE = {p.type: p for p in PROJECTIONS}
 
 
 def project(tx: Tx, type_: str, keys: Sequence[str] | None) -> None:
-    """Rebuild the typed rows for `keys` of `type_` (all keys when None)."""
+    """Rebuild the typed rows for `keys` of `type_` (all keys when None).
+
+    With keys, the payloads the statements read are staged first (see stage()); a
+    whole-type rebuild reads raw_payload directly.
+    """
     projection = PROJECTION_BY_TYPE.get(type_)
     if projection is None:
         return
@@ -679,7 +805,10 @@ def project(tx: Tx, type_: str, keys: Sequence[str] | None) -> None:
         tx.run("INSERT INTO _scope SELECT object_key FROM raw_latest WHERE object_type = ?", [type_])
     elif len(keys) > 0:
         tx.run("INSERT INTO _scope SELECT unnest(?::VARCHAR[])", [list(keys)])
-    for sql in projection.statements:
+    staged = keys is not None
+    if staged:
+        stage(tx, projection.needs)
+    for sql in projection.expanded(staged):
         tx.run(sql)
 
 

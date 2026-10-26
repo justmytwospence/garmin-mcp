@@ -42,7 +42,7 @@ Python 3.12, [uv](https://docs.astral.sh/uv/) for everything. Dependencies follo
 - **Docs**: `mkdocs build --strict` must pass; links and anchors are validated. A count quoted in the prose (tools, tables) is wrapped in `<!-- count:name -->N<!-- /count -->` so the generators keep it current.
 - **A new setting**: read it through `env.py`, validate it in `cli.validate_settings`, list it in `.env.example` and on the configuration page, and add a changelog line.
 
-Memory matters: the server runs with a 512 MB DuckDB limit in a 1.5 GB container. Projections must read only the payloads in scope (see `scoped_raw` in `projections.py`), wide projections parse each body once (`_parse_once`), and whole-type scans sample (`live_bodies`). `test/test_memory.py` has the regression tests; `docs/operations.md` the measurements.
+Memory matters: the server runs with a 512 MB DuckDB limit in a 1.5 GB container. Projections read payload bodies only through the tokens in `projections.py` (`scoped_raw`, `all_raw`, `last_body`, `history`), which `project()` stages by hash for a scoped run; never join or filter `raw_payload`/`raw_current` for bodies by type and key, which reads the whole body column (`raw.read_current` is the way to read a few), wide projections parse each body once (`_parse_once`), and whole-type scans sample (`live_bodies`). `test/test_memory.py` has the regression tests; `docs/operations.md` the measurements.
 
 ## Commits and releases
 

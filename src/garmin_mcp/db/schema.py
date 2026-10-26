@@ -117,7 +117,12 @@ STRAVA_LINK: list[str] = [
     "COMMENT ON COLUMN strava_link.decided IS 'renamed, adopted (already equal), conflict (edited by hand on Garmin; left alone), or kept (course links).'",
 ]
 
+# Point reads of a payload by its hash: the composite primary key is not used for lookups,
+# so without this every staged body (see projections.stage) was a scan of raw_payload.
+PAYLOAD_HASH_INDEX: list[str] = ["CREATE INDEX IF NOT EXISTS raw_payload_content_hash ON raw_payload (content_hash)"]
+
 MIGRATIONS: list[list[str]] = [
     [*CORE, *[s for t in TABLES for s in table_ddl(t)], *[s for t in FIT_TABLES for s in table_ddl(t)]],
     STRAVA_LINK,
+    PAYLOAD_HASH_INDEX,
 ]

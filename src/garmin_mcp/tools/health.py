@@ -3,9 +3,11 @@ mirror, ranges and weekly aggregates computed from its typed tables."""
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from ..db.raw import read_current
 from ..mirror import GarminNotFound, Provenance, note_provenance
 from .base import READ, NoData, Registry, drop_none, iso_days, parse_date, parse_range
 
@@ -739,11 +741,13 @@ def register(reg: Registry) -> None:
         if is_today:
             m.fresh_activity_list()
             now = datetime.now().astimezone()
-            rows = m.rows(
-                """SELECT a.activity_id, a.activity_name, a.start_time_gmt, a.duration, TRY_CAST(r.body->>'recoveryTime' AS DOUBLE) AS recovery
-                   FROM activity a JOIN raw_current r ON r.object_type = 'activity_summary' AND r.object_key = a.activity_id::VARCHAR
-                   WHERE a.deleted_at IS NULL ORDER BY a.start_time_gmt DESC LIMIT 20"""
-            )
+            rows = m.rows("SELECT activity_id, activity_name, start_time_gmt, duration FROM activity WHERE deleted_at IS NULL ORDER BY start_time_gmt DESC LIMIT 20")
+            # recoveryTime is not a typed column: read it from each summary by hash (read_current).
+            bodies = {r["object_key"]: r["body"] for r in read_current(m.db, "activity_summary", [str(r["activity_id"]) for r in rows])}
+            for r in rows:
+                body = bodies.get(str(r["activity_id"]))
+                value = json.loads(body).get("recoveryTime") if body else None
+                r["recovery"] = float(value) if isinstance(value, (int, float)) else None
             best = None
             for r in rows:
                 if r["recovery"] is None or not r["start_time_gmt"]:

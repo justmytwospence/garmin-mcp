@@ -19,7 +19,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from .db.database import Database
-from .db.raw import land
+from .db.raw import current, land, read_current
 from .garmin.client import AuthError, GarminClient, GarminError, NotFound, RateLimited, Unavailable
 from .garmin.datasets import REPORT_TTL, dataset, days_between
 from .sync.engine import SyncEngine
@@ -120,7 +120,7 @@ class Mirror:
         return self.engine.today()
 
     def _stored(self, type_: str, key: str) -> dict | None:
-        return self.db.one("SELECT status, checked_at, fetched_at, body FROM raw_current WHERE object_type = ? AND object_key = ?", [type_, key])
+        return current(self.db, type_, key)
 
     def _to_cached(self, s: dict, source: str, stale: str | None = None) -> Cached:
         if s["status"] != "ok" or s["body"] is None:
@@ -188,10 +188,7 @@ class Mirror:
         if e < s:
             s, e = e, s
         days = [d.isoformat() for d in days_between(s, e)]
-        rows = self.db.all(
-            "SELECT object_key, status, checked_at, body FROM raw_current WHERE object_type = ? AND object_key IN (SELECT unnest(?::VARCHAR[]))",
-            [name, days],
-        )
+        rows = read_current(self.db, name, days)
         by_key = {r["object_key"]: r for r in rows}
         now = datetime.now(UTC)
         missing = [d for d in days if d not in by_key or now - by_key[d]["checked_at"] > self.day_age(d)]
@@ -205,10 +202,7 @@ class Mirror:
                 if not rows or not can_serve_stale(err):
                     raise
                 meta = Provenance("mirror", None, str(err)[:200])
-            rows = self.db.all(
-                "SELECT object_key, status, checked_at, body FROM raw_current WHERE object_type = ? AND object_key IN (SELECT unnest(?::VARCHAR[]))",
-                [name, days],
-            )
+            rows = read_current(self.db, name, days)
         data = [json.loads(r["body"]) for r in sorted(rows, key=lambda r: r["object_key"]) if r["body"] is not None]
         if meta.source == "mirror" and rows:
             meta.fetched_at = max(r["checked_at"] for r in rows).isoformat()

@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from ..db.raw import read_current
 from ..mirror import GarminNotFound, Provenance, note_provenance
 from .base import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, Registry, ToolFailure, WriteResult, activity_key, drop_none, parse_date, parse_range
 
@@ -71,13 +72,18 @@ def register(reg: Registry) -> None:
             note_provenance(Provenance("mirror", None, notes=["the first complete activity listing has not finished yet; older activities may be missing"]))
 
     def summaries(where: str, params: list[Any], limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
-        sql = f"""SELECT r.body FROM activity a JOIN raw_current r ON r.object_type = 'activity_summary' AND r.object_key = a.activity_id::VARCHAR
-                  WHERE a.deleted_at IS NULL AND r.body IS NOT NULL AND {where} ORDER BY a.start_time_gmt DESC"""
+        # Ids first, then each summary by its hash (read_current): a join on raw_current would
+        # read the payload column of raw_payload whole.
+        sql = f"""SELECT a.activity_id::VARCHAR AS k FROM activity a
+                  JOIN raw_latest l ON l.object_type = 'activity_summary' AND l.object_key = a.activity_id::VARCHAR AND l.status = 'ok'
+                  WHERE a.deleted_at IS NULL AND {where} ORDER BY a.start_time_gmt DESC"""
         if limit is not None:
             sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
         import json
 
-        return [json.loads(r["body"]) for r in m.db.all(sql, params)]
+        ids = [r["k"] for r in m.db.all(sql, params)]
+        bodies = {r["object_key"]: r["body"] for r in read_current(m.db, "activity_summary", ids)}
+        return [json.loads(bodies[k]) for k in ids if bodies.get(k) is not None]
 
     @reg.tool(annotations=READ)
     def get_activities_by_date(start_date: str, end_date: str, activity_type: str = "", page: int = 0, page_size: int = 100) -> Any:
