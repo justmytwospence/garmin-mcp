@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-26
+
 ### Added
 
 - Local MCP usage/schema/coverage/status resources, bounded cache-only activity/day templates and read-only activity/recovery review prompts. The guide lists URI examples and prompt names for clients without template discovery; tool descriptions also carry API-budget guidance.
