@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Local MCP usage/schema/coverage/status resources, bounded cache-only activity/day templates and read-only activity/recovery review prompts. The guide lists URI examples and prompt names for clients without template discovery; tool descriptions also carry API-budget guidance.
+- Offline wire-contract, SQL/export and fake-clock API-budget regressions; release publication now requires successful lint, tests and generated-documentation checks.
+
+### Fixed
+
+- Agent SQL now runs inside `BEGIN TRANSACTION READ ONLY` on the actual executing cursor, with serialized access, guaranteed rollback/close and timeout cleanup. Wrapped non-read statements are rejected too, including `EXPLAIN ANALYZE COPY` filesystem writes.
+- Filesystem export tools advertise destructive-capable writes and reject mirror, snapshot, FIT, authentication/configuration and symlink destinations, using safe atomic replacement for legitimate exports.
+- Complete explicit tool hints distinguish local reads/configuration from upstream operations, replacement edits and append-only writes. Compatible text/provenance blocks are retained alongside bounded structured JSON results.
+- Retry accounting records each attempt once before backoff; `Retry-After` is honored where available, ambiguous writes are not replayed and library method retries are disabled. Timestamped status distinguishes unknown upstream quota from local counts, pacing and the separate conservative reload allowance. Reload admission is serialized and lost outcomes are reserved across restarts.
+
 ## [1.3.0] - 2026-10-25
 
 ### Added

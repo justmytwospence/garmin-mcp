@@ -18,7 +18,7 @@ from typing import Any
 from ..db.database import Database
 from ..db.raw import land, land_many, mark_not_found
 from ..fit.decode import PARSER_VERSION, land_fit
-from ..garmin.client import GarminClient, NotFound, Priority
+from ..garmin.client import AuthError, GarminClient, GarminError, NotFound, Priority, RateLimited
 from ..garmin.datasets import (
     ACTIVITY_FIT_PATH,
     ACTIVITY_LIST_PATH,
@@ -227,10 +227,20 @@ class Fetchers:
 
     def request_reload(self, day: str, *, priority: Priority = "backfill") -> dict[str, Any]:
         at = datetime.now(UTC)
+        # Reserve before sending: a lost response or process exit must not cause
+        # the background queue to replay a write whose outcome is unknown.
+        self.db.run("INSERT INTO reload_request (calendar_date, requested_at, status) VALUES (?, ?, 'pending_outcome')", [day, at])
         try:
             text = self.client.send("POST", RELOAD_PATH.format(key=day), priority=priority)
         except NotFound:
             text = None
+        except Exception as err:
+            rejected = isinstance(err, (AuthError, RateLimited)) or (isinstance(err, GarminError) and err.status is not None and 400 <= err.status < 500)
+            if rejected:
+                self.db.run("DELETE FROM reload_request WHERE calendar_date = ? AND requested_at = ?", [day, at])
+            else:
+                self.db.run("UPDATE reload_request SET status = 'outcome_unknown' WHERE calendar_date = ? AND requested_at = ?", [day, at])
+            raise
         status = None
         body: Any = None
         if text:
@@ -241,16 +251,18 @@ class Fetchers:
                 body = {"raw": text[:500]}
         with self.db.transaction() as tx:
             tx.run(
-                "INSERT INTO reload_request (calendar_date, requested_at, status, response) VALUES (?, ?, ?, ?::JSON)",
-                [day, at, status or "unknown", compact_json(body)],
+                "UPDATE reload_request SET status = ?, response = ?::JSON WHERE calendar_date = ? AND requested_at = ?",
+                [status or "unknown", compact_json(body), day, at],
             )
         return {"status": status, "response": body}
 
     def reloads_last_24h(self) -> int:
         return int(self.db.scalar("SELECT count(*) FROM reload_request WHERE requested_at > now() - INTERVAL 24 HOUR") or 0)
 
-    def next_reload_slot(self) -> datetime | None:
-        row = self.db.one("SELECT min(requested_at) AS t FROM (SELECT requested_at FROM reload_request WHERE requested_at > now() - INTERVAL 24 HOUR ORDER BY requested_at LIMIT 1)")
+    def next_reload_slot(self, limit: int = 25) -> datetime | None:
+        # Keep the newest `limit` reservations: even an older/overfull ledger
+        # needs enough entries to expire before another admission is possible.
+        row = self.db.one("SELECT min(requested_at) AS t FROM (SELECT requested_at FROM reload_request WHERE requested_at > now() - INTERVAL 24 HOUR ORDER BY requested_at DESC LIMIT ?)", [limit])
         if row is None or row["t"] is None:
             return None
         return row["t"] + timedelta(hours=24, minutes=5)

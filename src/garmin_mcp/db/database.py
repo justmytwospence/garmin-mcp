@@ -3,10 +3,11 @@
 DuckDB allows a single writing process, so the sync worker and the MCP tools share
 this instance. Writes go through one connection behind a lock (a DuckDB connection
 must not run two statements at once); the read-only ``garmin_query`` tool gets its own
-cursor, which MVCC lets run alongside the writer.
+cursor in an engine-enforced read-only transaction. Access is serialized with the writer.
 
-File access is locked down once the schema is in place: nothing but the snapshot
-directory is reachable from SQL, so a query cannot read the token file.
+External file access is locked down once the schema is in place. DuckDB permits
+its internal database/WAL/temp paths and the configured snapshot directory; unrelated
+authentication/configuration files outside those locations are not reachable from SQL.
 
 A fatal DuckDB error ("Failed to rollback transaction. Cannot continue operation", an
 internal assertion) invalidates the database instance: every later statement fails
@@ -195,10 +196,33 @@ class Database:
         with self.write() as tx:
             tx.run(sql, params)
 
-    def connect(self) -> duckdb.DuckDBPyConnection:
-        """A separate cursor on the same database, for the read-only query tool."""
+    @contextmanager
+    def read_only(self) -> Iterator[duckdb.DuckDBPyConnection]:
+        """Engine-enforced read-only transaction on the *executing* cursor.
+
+        Serialize shared-instance access, fail closed if BEGIN is unsupported, and
+        discard the cursor even if execution/rollback fails. Never commit caller SQL.
+        """
         with self._lock:
-            return self._conn.cursor()
+            conn = self._conn.cursor()
+            begun = False
+            try:
+                conn.execute("BEGIN TRANSACTION READ ONLY")
+                begun = True
+                yield conn
+            except duckdb.Error as err:
+                self.report(err)
+                raise
+            finally:
+                try:
+                    if begun:
+                        try:
+                            conn.execute("ROLLBACK")
+                        except duckdb.Error as err:
+                            self.report(err)
+                            raise
+                finally:
+                    conn.close()
 
     def catalog(self) -> str:
         """The catalog name of the mirror (the file's basename), for COPY FROM DATABASE."""

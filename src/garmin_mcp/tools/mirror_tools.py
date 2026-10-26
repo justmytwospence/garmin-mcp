@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from typing import Any
@@ -11,7 +12,7 @@ import duckdb
 from ..db.projections import drift
 from ..garmin.client import auth_fix
 from ..mirror import Mirror, Provenance, jsonable, note_provenance
-from .base import READ, NoData, Registry, ToolFailure
+from .base import LOCAL_READ, NoData, Registry, ToolFailure
 
 QUERY_TIMEOUT_S = 30.0
 MAX_ROWS = 5000
@@ -39,19 +40,14 @@ _READ_ONLY_TYPES = {"SELECT", "EXPLAIN"}
 
 
 class ReadOnlyQuery:
-    """One statement on its own cursor: parsed first, run only if it is a SELECT or
-    EXPLAIN (DESCRIBE, SHOW, SUMMARIZE and FROM-first queries parse as SELECT), interrupted
-    after the timeout. File access is already disabled database-wide."""
+    """One bounded statement inside an engine-enforced read-only transaction.
+
+    Parsing is only a first filter: EXPLAIN can wrap mutations, and SELECT can call
+    side-effecting functions. The actual executing cursor must reject those too.
+    """
 
     def __init__(self, mirror: Mirror) -> None:
         self.mirror = mirror
-        self._conn: duckdb.DuckDBPyConnection | None = None
-        self._lock = threading.Lock()
-
-    def connection(self) -> duckdb.DuckDBPyConnection:
-        if self._conn is None:
-            self._conn = self.mirror.db.connect()
-        return self._conn
 
     @staticmethod
     def check(sql: str) -> None:
@@ -64,24 +60,46 @@ class ReadOnlyQuery:
         kind = str(statements[0].type).rsplit(".", 1)[-1].upper()
         if kind not in _READ_ONLY_TYPES:
             raise ToolFailure(f"Only read-only queries are allowed (got {kind}).")
+        if kind == "EXPLAIN":
+            # READ ONLY blocks database writes, not COPY TO an allowed snapshot
+            # directory. Inspect the wrapped statement too, using engine tokens
+            # (not a regex that comments or EXPLAIN options can evade).
+            tokens = duckdb.tokenize(sql)
+            i = 1
+            if i < len(tokens) and re.match(r"ANALYZE\b", sql[tokens[i][0]:], re.I):
+                i += 1
+            if i < len(tokens) and sql[tokens[i][0]] == "(":
+                depth = 1
+                i += 1
+                while i < len(tokens) and depth:
+                    pos, token_type = tokens[i]
+                    if str(token_type).endswith("operator"):
+                        depth += (sql[pos] == "(") - (sql[pos] == ")")
+                    i += 1
+            if i >= len(tokens):
+                raise ToolFailure("EXPLAIN must wrap a read-only query.")
+            ReadOnlyQuery.check(sql[tokens[i][0]:])
 
     def run(self, sql: str, max_rows: int) -> dict[str, Any]:
         self.check(sql)
-        with self._lock:
-            conn = self.connection()
-            timer = threading.Timer(QUERY_TIMEOUT_S, conn.interrupt)
-            timer.start()
-            try:
-                cur = conn.execute(sql)
-                columns = [d[0] for d in cur.description] if cur.description else []
-                rows = cur.fetchmany(max_rows + 1)
-            except duckdb.InterruptException as err:
-                raise ToolFailure(f"Query interrupted after {QUERY_TIMEOUT_S:.0f} s; add filters or LIMIT.") from err
-            except duckdb.Error as err:
-                self.mirror.db.report(err)
-                raise ToolFailure(f"Query failed: {err}") from err
-            finally:
-                timer.cancel()
+        max_rows = max(1, min(int(max_rows), MAX_ROWS))
+        try:
+            with self.mirror.db.read_only() as conn:
+                timer = threading.Timer(QUERY_TIMEOUT_S, conn.interrupt)
+                timer.start()
+                try:
+                    cur = conn.execute(sql)
+                    columns = [d[0] for d in cur.description] if cur.description else []
+                    rows = cur.fetchmany(max_rows + 1)
+                finally:
+                    timer.cancel()
+                    # A racing interrupt must finish before rollback/close, not hit
+                    # cleanup or a subsequent request on the shared instance.
+                    timer.join()
+        except duckdb.InterruptException as err:
+            raise ToolFailure(f"Query interrupted after {QUERY_TIMEOUT_S:.0f} s; add filters or LIMIT.") from err
+        except duckdb.Error as err:
+            raise ToolFailure(f"Query failed (read-only transaction required): {err}") from err
         out = [dict(zip(columns, (jsonable(v) for v in r), strict=True)) for r in rows[:max_rows]]
         return {"columns": columns, "rows": out, "row_count": len(out), "truncated": len(rows) > max_rows}
 
@@ -91,7 +109,7 @@ def register(reg: Registry) -> None:
     query = ReadOnlyQuery(m)
     drift_cache = DriftCache(m)
 
-    @reg.tool(annotations=READ)
+    @reg.tool(annotations=LOCAL_READ)
     def garmin_query(sql: str, max_rows: int = 200) -> Any:
         """Run a read-only DuckDB SQL query against the local mirror of the user's Garmin Connect data. Costs no Garmin requests. Use garmin_schema first to see the tables.
 
@@ -114,7 +132,7 @@ def register(reg: Registry) -> None:
             result["note"] = f"Truncated to {max_rows} rows; aggregate or add LIMIT/OFFSET."
         return result
 
-    @reg.tool(annotations=READ)
+    @reg.tool(annotations=LOCAL_READ)
     def garmin_schema(table: str | None = None) -> Any:
         """List the mirror's tables and views with their descriptions and estimated row counts, or, given a table name, its columns with types, units and descriptions. Use before garmin_query.
 
@@ -122,37 +140,45 @@ def register(reg: Registry) -> None:
             table: A table or view name; omit to list them all.
         """
         note_provenance(Provenance("mirror", None, notes=["catalog of the local mirror; no Garmin request"]))
-        db = m.db
-        if not table:
-            tables = db.all(
-                """SELECT table_name AS name, 'table' AS kind, estimated_size::BIGINT AS approx_rows, comment
-                   FROM duckdb_tables() WHERE schema_name = 'main' AND NOT internal AND NOT temporary
-                   UNION ALL
-                   SELECT view_name, 'view', NULL, comment FROM duckdb_views() WHERE schema_name = 'main' AND NOT internal
-                   ORDER BY kind, name"""
-            )
-            return {"tables": tables}
-        columns = db.all(
-            "SELECT column_name AS name, data_type AS type, comment FROM duckdb_columns() WHERE schema_name = 'main' AND table_name = ? ORDER BY column_index",
-            [table],
-        )
-        if not columns:
-            raise NoData(f"No table or view named {table}. Call garmin_schema without arguments to list them.")
-        meta = db.one(
-            "SELECT comment FROM duckdb_tables() WHERE schema_name = 'main' AND table_name = ? UNION ALL SELECT comment FROM duckdb_views() WHERE schema_name = 'main' AND view_name = ?",
-            [table, table],
-        )
-        return {"table": table, "comment": (meta or {}).get("comment"), "columns": columns}
+        return schema(m, table)
 
-    @reg.tool(annotations=READ)
+    @reg.tool(annotations=LOCAL_READ)
     def garmin_sync_status() -> Any:
         """How complete and fresh the local mirror of Garmin Connect is: coverage per dataset, the sync queue by kind, last run of each periodic task, recent errors, pacing and backoff state, the archive reload quota, the login state, and any fields Garmin returns that the schema does not yet map."""
         note_provenance(Provenance("mirror", None, notes=["sync bookkeeping of the local mirror; no Garmin request"]))
-        status = m.engine.status()
-        status["login"] = login_state(m)
-        status["sync_worker"] = "running" if m.engine._running else "stopped"
-        status["unmapped_fields"] = drift_cache.get()
-        return jsonable(status)
+        return sync_status(m, drift_cache)
+
+
+def schema(m: Mirror, table: str | None = None) -> dict[str, Any]:
+    db = m.db
+    if not table:
+        tables = db.all(
+            """SELECT table_name AS name, 'table' AS kind, estimated_size::BIGINT AS approx_rows, comment
+               FROM duckdb_tables() WHERE schema_name = 'main' AND NOT internal AND NOT temporary
+               UNION ALL
+               SELECT view_name, 'view', NULL, comment FROM duckdb_views() WHERE schema_name = 'main' AND NOT internal
+               ORDER BY kind, name"""
+        )
+        return {"tables": tables}
+    columns = db.all(
+        "SELECT column_name AS name, data_type AS type, comment FROM duckdb_columns() WHERE schema_name = 'main' AND table_name = ? ORDER BY column_index",
+        [table],
+    )
+    if not columns:
+        raise NoData(f"No table or view named {table}. Call garmin_schema without arguments to list them.")
+    meta = db.one(
+        "SELECT comment FROM duckdb_tables() WHERE schema_name = 'main' AND table_name = ? UNION ALL SELECT comment FROM duckdb_views() WHERE schema_name = 'main' AND view_name = ?",
+        [table, table],
+    )
+    return {"table": table, "comment": (meta or {}).get("comment"), "columns": columns}
+
+
+def sync_status(m: Mirror, drift_cache: DriftCache) -> dict[str, Any]:
+    status = m.engine.status()
+    status["login"] = login_state(m)
+    status["sync_worker"] = "running" if m.engine._running else "stopped"
+    status["unmapped_fields"] = drift_cache.get()
+    return jsonable(status)
 
 
 def login_state(m: Mirror) -> dict[str, Any]:

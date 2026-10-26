@@ -66,6 +66,7 @@ nav:
       - Troubleshooting: troubleshooting.md
   - Reference:
       - Tools: reference/tools.md
+      - MCP context and API budget: reference/context.md
       - Schema: data/schema.md
       - Changelog: changelog.md
 

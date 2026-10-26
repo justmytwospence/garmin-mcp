@@ -99,7 +99,7 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
     client = GarminClient(PendingTransport(), on_sample=record)
     snapshot = SnapshotPublisher(db)
     engine = SyncEngine(db, client, data_dir, on_change=snapshot.mark_dirty, history_start=env.get("GARMIN_HISTORY_START") or None, strava=StravaSyncConfig.from_env(env))
-    mirror = Mirror(db, engine, client)
+    mirror = Mirror(db, engine, client, tokenstore=token_dir(env))
     sync_enabled = env_bool("GARMIN_SYNC", True, env)
     login = LoginManager(client, token_dir(env), email=env.get("GARMIN_EMAIL") or None, password=env.get("GARMIN_PASSWORD") or None, cn=is_cn(env))
     rt = Runtime(db, client, engine, mirror, snapshot, login, sync_enabled, db_path)

@@ -107,7 +107,8 @@ def can_serve_stale(err: Exception) -> bool:
 
 
 class Mirror:
-    def __init__(self, db: Database, engine: SyncEngine, client: GarminClient) -> None:
+    def __init__(self, db: Database, engine: SyncEngine, client: GarminClient, *, tokenstore: str | None = None) -> None:
+        self.tokenstore = tokenstore
         self.db = db
         self.engine = engine
         self.client = client

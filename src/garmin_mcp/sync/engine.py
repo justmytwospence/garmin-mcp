@@ -82,6 +82,7 @@ class SyncEngine:
         self._running = False
         self._thread: threading.Thread | None = None
         self._wake = threading.Event()
+        self._reload_lock = threading.Lock()
         self.current: dict[str, Any] | None = None
         self._sleep = sleep
         # The optional Strava sync, when STRAVA_SYNC is set (tests attach one with its own source).
@@ -103,7 +104,7 @@ class SyncEngine:
     def today(self) -> date:
         return datetime.now(self.zone()).date()
 
-    def history_start(self) -> date | None:
+    def history_start(self, *, persist: bool = True) -> date | None:
         if self.history_start_env:
             return date.fromisoformat(self.history_start_env)
         row = self.db.one("SELECT value FROM sync_state WHERE name = 'history_start'")
@@ -115,7 +116,8 @@ class SyncEngine:
         if not candidates:
             return None
         start = min(candidates)
-        self.set_state("history_start", start.isoformat())
+        if persist:
+            self.set_state("history_start", start.isoformat())
         return start
 
     # ------------------------------------------------------------- state
@@ -462,16 +464,23 @@ class SyncEngine:
         if kind.startswith("reparse:"):
             return f.reparse_file(kind[8:], key).changed
         if kind == "reload":
-            if f.reloads_last_24h() >= RELOADS_PER_DAY:
-                slot = f.next_reload_slot() or (datetime.now(UTC) + timedelta(hours=1))
-                self.db.run("UPDATE sync_job SET not_before = ? WHERE kind = 'reload'", [slot])
-                raise _Deferred(f"reload quota used; next slot {slot.isoformat()}")
-            r = f.request_reload(key, priority=cls)
-            status = (r.get("status") or "").upper()
-            if status == "DENIED":
-                self.db.run("UPDATE sync_job SET not_before = now() + INTERVAL 24 HOUR WHERE kind = 'reload'")
-            self.enqueue("refetch_day", key, 50, 0, datetime.now(UTC) + REFETCH_DELAY)
-            return True
+            with self._reload_lock:
+                # A reserved/ambiguous write is not safe to repeat, even after a
+                # process restart. Only the read-only follow-up is automatic.
+                uncertain = self.db.scalar("SELECT count(*) FROM reload_request WHERE calendar_date = ?::DATE AND status IN ('pending_outcome', 'outcome_unknown')", [key])
+                if uncertain:
+                    self.enqueue("refetch_day", key, 50, 0, datetime.now(UTC) + REFETCH_DELAY)
+                    return False
+                if f.reloads_last_24h() >= RELOADS_PER_DAY:
+                    slot = f.next_reload_slot(RELOADS_PER_DAY) or (datetime.now(UTC) + timedelta(hours=1))
+                    self.db.run("UPDATE sync_job SET not_before = ? WHERE kind = 'reload'", [slot])
+                    raise _Deferred(f"reload quota used; next slot {slot.isoformat()}")
+                r = f.request_reload(key, priority=cls)
+                status = (r.get("status") or "").upper()
+                if status == "DENIED":
+                    self.db.run("UPDATE sync_job SET not_before = now() + INTERVAL 24 HOUR WHERE kind = 'reload'")
+                self.enqueue("refetch_day", key, 50, 0, datetime.now(UTC) + REFETCH_DELAY)
+                return True
         if kind == "refetch_day":
             changed = False
             for ds in INTRADAY_DATASETS:
@@ -608,8 +617,10 @@ class SyncEngine:
                       max(requested_at)::VARCHAR AS last_requested FROM reload_request"""
         )
         requests_24h = self.db.one("SELECT count(*)::INTEGER AS n, count(*) FILTER (WHERE status >= 400)::INTEGER AS failed FROM request_log WHERE observed_at > now() - INTERVAL 1 DAY")
-        hs = self.history_start()
+        hs = self.history_start(persist=False)
+        next_slot = self.fetch.next_reload_slot(RELOADS_PER_DAY) if (reloads or {}).get("used_last_24h", 0) >= RELOADS_PER_DAY else None
         return {
+            "generated_at": datetime.now(UTC).isoformat(),
             "working_on": self.current,
             "history_start": hs.isoformat() if hs else None,
             "today": self.today().isoformat(),
@@ -620,7 +631,13 @@ class SyncEngine:
             "last_runs": last_runs,
             "outcomes_last_24h": outcomes,
             "recent_errors": errors,
-            "reload_quota": {**(reloads or {}), "limit_per_24h": RELOADS_PER_DAY},
+            "reload_quota": {
+                **(reloads or {}), "limit_per_24h": RELOADS_PER_DAY,
+                "source": "local ledger and conservative policy; approximate provider allowance is not authoritative quota",
+                "provider_remaining": None,
+                "next_local_slot_at": next_slot.isoformat() if next_slot else None,
+                "note": "Other clients are not counted; the 25/day local archive-reload policy is separate from the unknown general API quota.",
+            },
             "requests_last_24h": requests_24h,
             "pacing": self.client.status(),
         }

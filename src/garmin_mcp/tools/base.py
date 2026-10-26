@@ -24,7 +24,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp_types import TextContent, ToolAnnotations
+from mcp_types import CallToolResult, TextContent, ToolAnnotations
 
 from ..env import env_int
 from ..garmin.client import AuthError, GarminError, NotFound, RateLimited, Unavailable, auth_fix
@@ -36,10 +36,13 @@ log = logging.getLogger("garmin_mcp.tools")
 # Longest tool result, in characters; longer ones are cut with a note (a bad value fails at import with its name).
 CHARACTER_LIMIT = env_int("GARMIN_MCP_CHARACTER_LIMIT", 60000, minimum=1000)
 
+LOCAL_READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
+LOCAL_CONFIG = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=False)
+FILE_EXPORT = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=True)
 READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True)
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True)
 DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=True)
-IDEMPOTENT_WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True)
+IDEMPOTENT_WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=True)
 
 
 class ToolFailure(ToolError):
@@ -137,7 +140,12 @@ class Registry:
                 self.skipped.append(tool_name)
                 return fn
             wrapped = self._wrap(fn, tool_name, writes=not bool(annotations.read_only_hint))
-            self.server.add_tool(wrapped, name=tool_name, description=description or inspect.getdoc(fn), annotations=annotations, structured_output=False)
+            doc = description or inspect.getdoc(fn) or tool_name
+            if annotations.open_world_hint:
+                doc += "\n\nAPI budget: cache-first reads cost zero when fresh, otherwise one or more Garmin requests; ranges, pagination, batches and write refetches can multiply requests. Prefer local SQL/resources and check garmin_sync_status; garmin://usage lists URI examples, workflow prompts and costs. General quota is unknown. Respect cooldowns; never blindly repeat a write with an unknown outcome."
+            else:
+                doc += "\n\nLocal operation only; costs no Garmin API requests. Read garmin://usage for resource URI examples, workflow prompts, batching and budget guidance."
+            self.server.add_tool(wrapped, name=tool_name, title=tool_name.replace("_", " ").capitalize(), description=doc, annotations=annotations, structured_output=False)
             self.registered.append(tool_name)
             self.modules[tool_name] = fn.__module__
             return fn
@@ -146,7 +154,7 @@ class Registry:
 
     def _wrap(self, fn: Callable[..., Any], name: str, writes: bool) -> Callable[..., Any]:
         @functools.wraps(fn)
-        def run(*args: Any, **kwargs: Any) -> list[TextContent]:
+        def run(*args: Any, **kwargs: Any) -> CallToolResult:
             with collect_provenance() as metas:
                 try:
                     # Vendored upstream tools are `async def` that await nothing; drive them here, on the worker thread.
@@ -169,8 +177,15 @@ class Registry:
                 content = [TextContent(type="text", text=result[:CHARACTER_LIMIT])]
             else:
                 content = [TextContent(type="text", text=json_text(result))]
-            content.append(TextContent(type="text", text=merge_provenance(metas).text()))
-            return content
+            provenance = merge_provenance(metas).text()
+            content.append(TextContent(type="text", text=provenance))
+            # Preserve the exact text blocks for existing clients. Only add
+            # machine data when the entire JSON fits; never bypass the bound or
+            # advertise a stable output schema for heterogeneous legacy tools.
+            structured = None
+            if not isinstance(result, str) and len(content[0].text) <= CHARACTER_LIMIT:
+                structured = {"data": json.loads(content[0].text), "provenance": provenance}
+            return CallToolResult(content=content, structured_content=structured)
 
         # The SDK builds the input schema from the signature; keep the original one.
         sig = inspect.signature(fn, eval_str=True)
@@ -245,6 +260,6 @@ def as_dict(v: Any) -> dict[str, Any]:
 
 
 __all__ = [
-    "Registry", "ToolFilter", "ToolFailure", "NoData", "WriteResult", "READ", "WRITE", "DESTRUCTIVE", "IDEMPOTENT_WRITE",
+    "Registry", "ToolFilter", "ToolFailure", "NoData", "WriteResult", "READ", "LOCAL_READ", "LOCAL_CONFIG", "FILE_EXPORT", "WRITE", "DESTRUCTIVE", "IDEMPOTENT_WRITE",
     "parse_date", "parse_range", "iso_days", "activity_key", "drop_none", "as_dict", "json_text", "CHARACTER_LIMIT",
 ]

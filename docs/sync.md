@@ -43,7 +43,7 @@ A first run on an account with a few years of history therefore goes: profile an
 
 Garmin keeps the per-sample series of a day (heart rate every two minutes, stress and Body Battery every three, sleep stages and overnight series, respiration, SpO2, floors, HRV readings, Body Battery events) online for about six months and then offloads them; the day's summaries stay. Asking for an offloaded day returns an empty series, which the mirror records as `sample_count = 0` on the day's row.
 
-Garmin can bring a day back on request (`POST wellness/epoch/request/{date}`), about 30 requests per 24 hours. The engine spends at most 25 a day, oldest days first, re-fetches each day a few hours later, and shows the quota in `garmin_sync_status` (`reload_quota`). `request_reload` spends one on a day of your choice.
+Garmin can bring a day back on request (`POST wellness/epoch/request/{date}`); its commonly observed allowance is about 30 requests per 24 hours, not an authoritative quota. The engine conservatively admits at most 25 per rolling 24 hours, oldest days first, re-fetches each day a few hours later, and shows its local ledger and next available slot in `garmin_sync_status` (`reload_quota`). `request_reload` spends one on a day of your choice. Reservations survive ambiguous failures or process exits so these writes are not automatically replayed. General API quota remains unknown; see [MCP context and API budget](reference/context.md).
 
 **Why reloads are rare.** The daily wellness FIT files Garmin's devices upload stay downloadable for every day, and they carry the same series at higher resolution: monitoring records with heart rate and steps, per-minute stress and Body Battery, respiration, SpO2, sleep stages and the sleep assessment, HRV status and values, naps. The engine downloads them for every day in the history (`wellness_fit` jobs) and decodes them into the `fit_*` tables, so an archived day is usually complete without touching the reload quota. A reload is requested only for a day whose wellness FIT came back missing or without monitoring data; days whose FIT is still queued wait. [Data](data/index.md#fit-tables) shows where each series lives.
 
@@ -69,7 +69,9 @@ A tool call reads the mirror when the stored copy is fresh enough for its kind a
 | Snapshots (profile, devices, gear, zones...) | the dataset's refresh interval, a day to a week |
 | Pass-through reports (nutrition, Garmin's progress and trend reports) | 10 minutes to an hour |
 
-If Garmin cannot be asked (backoff after a 429, an outage, a lost login) and a copy exists, the copy is served and marked stale. Writes (activity edits, workouts, weigh-ins...) go to Garmin first; the affected objects are then re-fetched into the mirror, never guessed, and the result says `write_committed: true`, `false` or `"unknown"` (a 5xx or timeout after the request went out).
+If Garmin cannot be asked (backoff after a 429, an outage, a lost login) and a copy exists, the copy is served and marked stale. Writes (activity edits, workouts, weigh-ins...) go to Garmin first; the affected objects are then re-fetched into the mirror, never guessed, and the result says `write_committed: true`, `false` or `"unknown"` (a 5xx or timeout after the request went out). Only safe reads retry transient failures, not writes; inspect current state before deciding on a manual retry of an unknown outcome. A 429 stops admission for at least 30 minutes or a longer available `Retry-After`.
+
+The `garmin://` resources are stricter than cache-first tools: they are local/cache-only and never fetch or enqueue work. Their static usage guide lists bounded URI examples and read-only workflow prompts; see [MCP context](reference/context.md).
 
 ## Provenance
 

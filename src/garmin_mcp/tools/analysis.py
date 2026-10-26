@@ -15,7 +15,8 @@ from xml.sax.saxutils import escape
 
 from ..fit.decode import decode_messages, unpack
 from ..mirror import GarminNotFound, Provenance, note_provenance
-from .base import DESTRUCTIVE, READ, WRITE, NoData, Registry, ToolFailure, WriteResult, activity_key, drop_none
+from .base import DESTRUCTIVE, FILE_EXPORT, LOCAL_CONFIG, READ, WRITE, NoData, Registry, ToolFailure, WriteResult, activity_key, drop_none
+from .exports import validate_export, write_export
 from .fit_analysis import (
     _PDC_LABELS,
     _compute_hr_drift,
@@ -354,11 +355,12 @@ def register(reg: Registry) -> None:
         note_provenance(Provenance("mirror", None, notes=["power curve computed from the mirror's FIT records"]))
         return {"activity_type": activity_type, "activities_analyzed": processed, "activities_skipped": skipped, "ftp_estimate_w": ftp, "ftp_note": "Estimated as 95% of 20-minute best power", "season_bests": ordered}
 
-    @reg.tool(annotations=READ)
+    @reg.tool(annotations=FILE_EXPORT)
     def download_activity_file(activity_id: int | str, format: str = "fit", output_dir: str | None = None) -> Any:  # noqa: A002
-        """Download an activity and save it to disk: the original .fit (copied from the mirror, no Garmin request), or gpx, tcx, csv
+        """Download an activity and save it to disk: the original .fit (cache-first; a missing FIT may be fetched), or gpx, tcx, csv
         exports fetched from Garmin. Directory: output_dir, else GARMIN_FIT_DOWNLOAD_DIR, else the persisted set_fit_download_dir;
         with none configured returns status "needs_setup". Files are named {activity_id}.{ext} and overwrite existing ones.
+        Protected mirror/token/config destinations and symlink traversal are rejected.
 
         Args:
             activity_id: Garmin activity ID
@@ -372,7 +374,8 @@ def register(reg: Registry) -> None:
         target_dir = resolve_download_dir(output_dir)
         if not target_dir:
             return {"status": "needs_setup", "suggested_default": os.getcwd(), "config_path": os.path.expanduser(fit_config_path()), "message": "No download directory configured. Ask the user where to save, call set_fit_download_dir(path), then call this tool again."}
-        os.makedirs(target_dir, exist_ok=True)
+        path = os.path.join(target_dir, f"{key}.{fmt}")
+        validate_export(m, path, fit_config_path())
         if fmt == "fit":
             row = ensure_fit(key)
             files = unpack(Path(row["path"]).read_bytes())
@@ -384,18 +387,20 @@ def register(reg: Registry) -> None:
             note_provenance(Provenance("garmin", None))
             if not payload:
                 raise ToolFailure(f"Garmin returned no {fmt} export for activity {key}.")
-        path = os.path.join(target_dir, f"{key}.{fmt}")
-        Path(path).write_bytes(payload)
+        path = write_export(m, path, payload, fit_config_path())
         return {"status": "success", "activity_id": int(key), "format": fmt, "file_path": os.path.abspath(path), "size_bytes": len(payload), "message": "Activity file saved."}
 
-    @reg.tool(annotations=WRITE)
+    @reg.tool(annotations=LOCAL_CONFIG)
     def set_fit_download_dir(path: str) -> Any:
         """Set and persist the default directory for downloaded activity files (in ~/.garminconnect_fit_config.json, overridable via GARMIN_FIT_CONFIG).
 
         Args:
             path: Directory where activity files (.fit/.gpx/.tcx/.csv) are saved.
         """
+        if not path.strip():
+            raise ToolFailure("path must name a non-empty export directory")
         abspath = os.path.abspath(os.path.expanduser(path))
+        validate_export(m, os.path.join(abspath, ".garmin-export-check"), fit_config_path())
         os.makedirs(abspath, exist_ok=True)
         cfg_path = Path(fit_config_path()).expanduser()
         cfg = read_fit_config()
@@ -438,16 +443,18 @@ def register(reg: Registry) -> None:
                 "elevation_loss_m": data.get("elevationLossInMeters") or data.get("elevationLossMeter"), "activity": (data.get("activityType") or {}).get("typeKey"), "waypoints_count": len(points), "waypoints": points,
                 "geo_points_count": len(data.get("geoPoints") or []), "url": f"https://connect.garmin.com/modern/course/{course_id}"}
 
-    @reg.tool(annotations=READ)
+    @reg.tool(annotations=FILE_EXPORT)
     def download_course_gpx(course_id: int, output_path: str | None = None) -> Any:
         """Download a Garmin Connect course as a GPX file rebuilt from its track points and course points (not the original upload).
+        Overwrites an existing export. Protected mirror/token/config destinations and symlink traversal are rejected.
 
         Args:
             course_id: ID of the course to download.
             output_path: Optional destination directory (saved as {course_id}.gpx) or file path ending in .gpx. Defaults to the
                 download_activity_file directory, else ./courses/{course_id}.gpx.
         """
-        target = resolve_gpx_output_path(int(course_id), output_path)
+        target = resolve_gpx_output_path(int(activity_key(course_id)), output_path)
+        validate_export(m, target, fit_config_path())
         data = course_detail(course_id)
         geo = data.get("geoPoints") or []
         if not geo:
@@ -464,8 +471,7 @@ def register(reg: Registry) -> None:
                 ele = f"<ele>{_gpx_decimal(p['elevation'])}</ele>" if p.get("elevation") is not None else ""
                 lines.append(f"      <trkpt lat='{_gpx_decimal(p['latitude'])}' lon='{_gpx_decimal(p['longitude'])}'>{ele}</trkpt>")
         lines += ["    </trkseg>", "  </trk>", "</gpx>"]
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        Path(target).write_text("\n".join(lines), encoding="utf-8")
+        target = write_export(m, target, "\n".join(lines).encode("utf-8"), fit_config_path())
         return {"status": "success", "course_id": course_id, "name": name, "gpx_path": target, "waypoints_count": len(cps), "track_points_count": len(geo)}
 
     @reg.tool(annotations=WRITE)

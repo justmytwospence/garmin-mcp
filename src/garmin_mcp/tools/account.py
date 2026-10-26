@@ -341,7 +341,7 @@ def register(reg: Registry) -> None:
         m.write("PUT", f"/gear-service/gear/link/{gear_uuid}/activity/{key}", refetch=lambda: m.fetch.activity_sub(dataset("activity_gear"), key, priority="interactive"))
         return WriteResult({"status": "success", "activity_id": int(key), "gear_uuid": gear_uuid, "message": "Gear added to activity"})
 
-    @reg.tool(annotations=WRITE)
+    @reg.tool(annotations=DESTRUCTIVE)
     def remove_gear_from_activity(activity_id: int, gear_uuid: str) -> Any:
         """Remove a gear association from an activity.
 

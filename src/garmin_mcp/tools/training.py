@@ -278,7 +278,9 @@ def register(reg: Registry) -> None:
 
     @reg.tool(annotations=WRITE)
     def request_reload(date: str) -> Any:
-        """Request reload of epoch data (asks Garmin to restore the archived intraday data of a day; about 30 per day are allowed, the sync engine uses 25 of them).
+        """Request restoration of one archived intraday day. Uses one archive-reload allowance (local conservative limit 25/24h,
+        not an authoritative general Garmin quota); follow-up reads run in about three hours. Check garmin_sync_status first.
+        Ambiguous outcomes are recorded and never automatically replayed; inspect coverage before any manual recovery.
 
         Args:
             date: Date in YYYY-MM-DD format
@@ -289,7 +291,8 @@ def register(reg: Registry) -> None:
         note_provenance(Provenance("garmin", None, notes=["reload request sent to Garmin; the day's intraday datasets will be re-fetched in about three hours"]))
         import json
 
-        return WriteResult({"status": row["status"] if row else None, "response": json.loads(row["response"]) if row and isinstance(row["response"], str) else (row or {}).get("response")})
+        uncertain = bool(row and row["status"] in ("pending_outcome", "outcome_unknown"))
+        return WriteResult({"status": row["status"] if row else None, "response": json.loads(row["response"]) if row and isinstance(row["response"], str) else (row or {}).get("response")}, write_committed="unknown" if uncertain else True)
 
     @reg.tool(annotations=READ)
     def get_training_load_trend(start_date: str, end_date: str) -> Any:

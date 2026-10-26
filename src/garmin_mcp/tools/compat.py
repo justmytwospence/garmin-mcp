@@ -6,7 +6,7 @@ served from the mirror's cached pass-through: fetched at interactive priority, k
 a short TTL, served stale when Garmin cannot be asked) and `client.put/post/delete`
 (writes through the paced client, after which the cached reports of that area are
 dropped so the next read is fresh). UpstreamApp turns `@app.tool()` into a Registry
-registration with annotations derived from the tool name.
+registration with explicit annotations for the vendored nutrition handlers.
 """
 
 from __future__ import annotations
@@ -18,7 +18,27 @@ from typing import Any
 
 from ..garmin.client import NotFound
 from ..mirror import GarminNotFound, Mirror
-from .base import DESTRUCTIVE, READ, WRITE, Registry
+from .base import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, Registry
+
+# Do not guess permission hints from prefixes: settings and food updates replace
+# existing state, while PUT-based food logging appends and is not idempotent.
+NUTRITION_HINTS = {
+    "get_nutrition_daily_food_log": READ,
+    "get_nutrition_summary_between_dates": READ,
+    "get_nutrition_daily_meals": READ,
+    "get_nutrition_daily_settings": READ,
+    "search_foods": READ,
+    "get_custom_foods": READ,
+    "get_custom_food_serving_units": READ,
+    "set_nutrition_daily_settings": IDEMPOTENT_WRITE,
+    "update_custom_food": IDEMPOTENT_WRITE,
+    "create_custom_food": WRITE,
+    "log_custom_food": WRITE,
+    "log_food": WRITE,
+    "upsert_and_log": WRITE,
+    "delete_custom_food": DESTRUCTIVE,
+    "delete_food_log": DESTRUCTIVE,
+}
 
 
 class LegacyClient:
@@ -74,13 +94,7 @@ class UpstreamApp:
 
         def decorator(fn):  # noqa: ANN001, ANN202
             tool_name = name or fn.__name__
-            if tool_name.startswith(("get_", "search_", "list_", "count_")):
-                ann = READ
-            elif tool_name.startswith("delete_"):
-                ann = DESTRUCTIVE
-            else:
-                ann = WRITE
-            return self.reg.tool(tool_name, annotations=ann)(fn)
+            return self.reg.tool(tool_name, annotations=NUTRITION_HINTS[tool_name])(fn)
 
         return decorator
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import DESTRUCTIVE, READ, Registry, ToolFailure, WriteResult
+from .base import DESTRUCTIVE, LOCAL_READ, READ, Registry, ToolFailure, WriteResult
 
 PARTS = ("titles", "courses")
 
@@ -15,7 +15,7 @@ def register(reg: Registry) -> None:
     if sync is None:
         return
 
-    @reg.tool(annotations=READ)
+    @reg.tool(annotations=LOCAL_READ)
     def strava_sync_status() -> Any:
         """Status of the Strava sync: its settings, the last run's result (renames, conflicts, course deletions or why they were held),
         what the ledger links, and its recent actions. No Garmin request."""
