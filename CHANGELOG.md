@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-26
+
 ### Fixed
 
 - Out-of-memory errors on a large mirror: the activity listing, activity re-fetches and the Strava sync failed with "Out of Memory Error" under the image's limits, so new activities stopped reaching the mirror. Reading any payload body by type and key made DuckDB read the whole body column a 2,048-row vector at a time, megabyte-sized activity details included, and the activity projection joins three such reads (a 20-row projection needed more than 1.5 GB). Scoped projections and the mirror's reads now fetch bodies by hash through a new `content_hash` index (a migration adds it on start), and a course detail replaces its row with a delete and an insert instead of `INSERT OR REPLACE`. On a 7 GB mirror, projecting 100 activity summaries now takes 0.6 s and under 350 MB of process memory.
@@ -105,7 +107,9 @@ The first release meant for other people: a self-hosted compose stack with docum
 
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
-[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/justmytwospence/garmin-mcp/compare/v1.4.0...v1.4.1
+[1.4.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.0.1...v1.1.0
