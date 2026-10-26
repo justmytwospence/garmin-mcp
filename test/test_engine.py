@@ -193,3 +193,30 @@ def test_files_decoded_by_an_older_parser_are_decoded_again():
     assert db.scalar("SELECT count(*) FROM raw_file WHERE parser_version < ?", [PARSER_VERSION]) == 0
     assert db.scalar("SELECT count(*) FROM fit_record") == records
     assert engine.plan() == 0
+
+
+def test_a_direct_run_clears_a_retrying_copy_of_the_job():
+    """A tool's fresh listing succeeding drops the queued listing stuck in a retry backoff."""
+    import tempfile
+    from pathlib import Path
+
+    from garmin_mcp.garmin.client import GarminClient
+    from garmin_mcp.sync.engine import SyncEngine
+
+    from conftest import open_db
+    from fake import FakeTransport
+
+    tmp = Path(tempfile.mkdtemp(prefix="garmin-mcp-retry-"))
+    db = open_db(tmp)
+    try:
+        client = GarminClient(FakeTransport(), background_gap=0, interactive_gap=0, jitter=0, sleep=lambda s: None)
+        engine = SyncEngine(db, client, str(tmp), history_start="2026-10-10", sleep=lambda s: None)
+        engine.enqueue("list_recent", "self", 10)
+        db.run("UPDATE sync_job SET attempts = 8, last_error = 'Out of Memory', not_before = now() + INTERVAL 6 HOUR WHERE kind = 'list_recent'")
+        engine.run_job("list_recent", "self", 5)
+        assert db.one("SELECT count(*) AS n FROM sync_job WHERE kind = 'list_recent'")["n"] == 0
+        engine.enqueue("list_recent", "self", 10)
+        engine.run_job("list_recent", "self", 5)
+        assert db.one("SELECT count(*) AS n FROM sync_job WHERE kind = 'list_recent'")["n"] == 1, "a pending copy that is not retrying stays queued"
+    finally:
+        db.close()

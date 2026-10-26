@@ -404,7 +404,18 @@ class SyncEngine:
     # ------------------------------------------------------------- jobs
 
     def run_job(self, kind: str, key: str, priority: int) -> bool:
-        """Run one job. Returns whether it changed the mirror."""
+        """Run one job. Returns whether it changed the mirror.
+
+        A tool can run a job directly (a fresh activity listing, a refresh after a write);
+        when that succeeds, a queued copy of the same job that is waiting out a retry
+        backoff is dropped, so the schedule queues it afresh instead of holding the
+        background sync back for hours after the problem is gone.
+        """
+        changed = self._run_job(kind, key, priority)
+        self.db.run("DELETE FROM sync_job WHERE kind = ? AND key = ? AND attempts > 0", [kind, key])
+        return changed
+
+    def _run_job(self, kind: str, key: str, priority: int) -> bool:
         cls = priority_class(priority)
         f = self.fetch
         if kind == "poll":
