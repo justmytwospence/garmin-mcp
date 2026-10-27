@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-27
+
 ### Changed
 
 - The snapshot is no longer copied every hour. Each publish copies the whole mirror (7 GB after a few years of FIT data), so an hourly copy cost about 15 GB of disk traffic an hour. A new or re-downloaded activity is now published 15 minutes after it arrives (`GARMIN_SNAPSHOT_ACTIVITY_DELAY_MINUTES`), every other change after six hours (`GARMIN_SNAPSHOT_INTERVAL_HOURS`), twelve during a backfill.

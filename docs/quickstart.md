@@ -80,7 +80,7 @@ See [Extras](extras.md). To expose the server on the internet for claude.ai, Cha
 The package is `garmin-mirror-mcp` on PyPI (published from the next release on; the name `garmin-mcp` belongs to another project). The commands are `garmin-mcp` and `garmin-mcp-auth`.
 
 ```sh
-uv tool install garmin-mirror-mcp==1.4.2    # or: uvx --from garmin-mirror-mcp==1.4.2 garmin-mcp-auth
+uv tool install garmin-mirror-mcp==1.5.0    # or: uvx --from garmin-mirror-mcp==1.5.0 garmin-mcp-auth
 garmin-mcp-auth                              # once; tokens go to ~/.garminconnect
 garmin-mcp                                   # stdio server, for Claude Desktop and similar clients
 MCP_TRANSPORT=http MCP_BEARER_TOKEN=... garmin-mcp   # or the HTTP service on http://localhost:8000/mcp
