@@ -9,7 +9,7 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 COPY src ./src
-COPY README.md LICENSE NOTICE ./
+COPY README.md LICENSE.md NOTICE ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 

@@ -3,8 +3,8 @@ name = "garmin-mirror-mcp"
 version = "1.4.2"
 description = "Garmin Connect MCP server backed by a complete local DuckDB mirror"
 readme = "README.md"
-license = "MIT"
-license-files = ["LICENSE", "NOTICE"]
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE.md", "NOTICE"]
 authors = [{ name = "Spencer Boucher" }]
 requires-python = ">=3.12"
 keywords = ["garmin", "garmin-connect", "mcp", "model-context-protocol", "duckdb", "fitness", "health", "fit", "strava"]
@@ -60,7 +60,7 @@ build-backend = "hatchling.build"
 packages = ["src/garmin_mcp"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/garmin_mcp", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "pyproject.toml"]
+include = ["src/garmin_mcp", "README.md", "CHANGELOG.md", "LICENSE.md", "NOTICE", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

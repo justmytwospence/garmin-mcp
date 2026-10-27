@@ -5,7 +5,7 @@
 [![release](https://img.shields.io/github/v/release/justmytwospence/garmin-mcp?display_name=tag)](https://github.com/justmytwospence/garmin-mcp/releases)
 [![pypi](https://img.shields.io/pypi/v/garmin-mirror-mcp)](https://pypi.org/project/garmin-mirror-mcp/)
 [![image](https://img.shields.io/badge/ghcr.io-justmytwospence%2Fgarmin--mcp-blue)](https://github.com/justmytwospence/garmin-mcp/pkgs/container/garmin-mcp)
-[![license](https://img.shields.io/github/license/justmytwospence/garmin-mcp)](LICENSE)
+[![license](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE.md)
 
 An [MCP](https://modelcontextprotocol.io) server for Garmin Connect that answers from a complete local mirror of your account. A paced background sync fills one [DuckDB](https://duckdb.org) file with everything Garmin Connect returns for you (activities and their original FIT files, every day's wellness data, training metrics, devices, gear, workouts, courses) and keeps it fresh. The <!-- count:tools-upstream -->157<!-- /count --> tools of [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp) answer from it in milliseconds, plus <!-- count:tools-mirror -->3<!-- /count --> that expose the mirror as SQL. One `docker compose up`, one login.
 
@@ -95,6 +95,12 @@ docker build -t garmin-mcp:local .
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how the code is organised, what a change needs and how releases work.
 
-## Credits and license
+## Credits
 
-MIT; see [LICENSE](LICENSE) and [NOTICE](NOTICE). Tool definitions, descriptions, the workout builders and validators, the FIT analyses, the challenge mappings and the nutrition tools are adapted or vendored from [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp) (MIT). Garmin Connect access through [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) (MIT); FIT decoding through Garmin's [FIT SDK](https://developer.garmin.com/fit/). Garmin's API is unofficial and nothing here is affiliated with, endorsed by or supported by Garmin. Use it for your own data.
+Tool definitions, descriptions, the workout builders and validators, the FIT analyses, the challenge mappings and the nutrition tools are adapted or vendored from [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp) (MIT). Garmin Connect access through [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) (MIT); FIT decoding through Garmin's [FIT SDK](https://developer.garmin.com/fit/). Garmin's API is unofficial and nothing here is affiliated with, endorsed by or supported by Garmin. Use it for your own data.
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md): free for personal use, research, education and noncommercial organizations. Commercial use requires a separate license; contact Spencer Boucher. Versions released before 2026-10-27 under MIT remain available under MIT. The code vendored from Taxuspt/garmin_mcp keeps its MIT license; see [NOTICE](NOTICE).
+
+Outside contributions require agreeing to a contributor license agreement; open an issue before sending a pull request.

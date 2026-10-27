@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for looking. Issues and pull requests are welcome; this page says how the code is organised and what a change needs so a review goes quickly.
+Thanks for looking. Issues are welcome. Outside contributions require agreeing to a contributor license agreement; open an issue before sending a pull request. This page says how the code is organised and what a change needs so a review goes quickly.
 
 ## Setup
 

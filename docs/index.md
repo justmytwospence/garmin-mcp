@@ -125,3 +125,7 @@ Questions about privacy, rate limits, several accounts and uninstalling are in t
 ## Credits
 
 Tool definitions, descriptions, the workout builders and validators, the FIT analyses, the challenge mappings and the nutrition tools are adapted or vendored from [Taxuspt/garmin_mcp](https://github.com/Taxuspt/garmin_mcp) (MIT). Garmin Connect access goes through [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) (MIT); FIT decoding through Garmin's [FIT SDK](https://developer.garmin.com/fit/). Garmin's API is unofficial; this project is not affiliated with, endorsed by or supported by Garmin, and is meant for one person's own data.
+
+## License
+
+garmin-mcp is free for personal use, research, education and noncommercial organizations under the [PolyForm Noncommercial License 1.0.0](https://github.com/justmytwospence/garmin-mcp/blob/main/LICENSE.md); commercial use requires a separate license. Versions released before 2026-10-27 remain available under MIT, and the code vendored from Taxuspt/garmin_mcp keeps its MIT license ([NOTICE](https://github.com/justmytwospence/garmin-mcp/blob/main/NOTICE)).

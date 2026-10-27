@@ -4,7 +4,7 @@ site_url: https://justmytwospence.github.io/garmin-mcp/
 repo_url: https://github.com/justmytwospence/garmin-mcp
 repo_name: justmytwospence/garmin-mcp
 edit_uri: edit/main/docs/
-copyright: MIT. Not affiliated with or endorsed by Garmin.
+copyright: PolyForm Noncommercial 1.0.0. Not affiliated with or endorsed by Garmin.
 strict: true
 validation:
   omitted_files: warn
