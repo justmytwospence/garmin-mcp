@@ -67,7 +67,7 @@ docker compose logs garmin-mcp | grep -i "login"
 
 ## Snapshot and HTTP
 
-**The snapshot is old.** It is published hourly when something changed, every six hours during a backfill, and only while `GARMIN_SYNC=on`. `GET /snapshot.duckdb` answers 404 until the first one exists (a few minutes after the first start).
+**The snapshot is old.** It is published 15 minutes after a new activity, six hours after other changes (`GARMIN_SNAPSHOT_INTERVAL_HOURS`), twelve during a backfill, and only while `GARMIN_SYNC=on`. `GET /snapshot.duckdb` answers 404 until the first one exists (a few minutes after the first start).
 
 **Behind a reverse proxy, every request is refused with 421 or a host error.** Set `MCP_ALLOWED_HOSTS` to the hostname clients use, comma-separated.
 

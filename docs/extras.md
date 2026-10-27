@@ -50,7 +50,7 @@ docker compose --profile backup up -d
 | `backup/garmin-data/fit/` | Original FIT files, one zip per activity and per wellness day | Re-downloading a few years takes days at one request per 1.5 s |
 | `backup/garmin-data/snapshot/garmin.duckdb` | The last published snapshot | A complete, consistent copy of the mirror |
 
-The live `garmin.duckdb`, its write-ahead log and DuckDB's temp directory are excluded (`BACKUP_EXCLUDE_REGEXP`): a copy of a database that is being written to is not a backup. The snapshot is at most an hour behind (six during a backfill), and everything it lacks is fetched again from Garmin on the next sync.
+The live `garmin.duckdb`, its write-ahead log and DuckDB's temp directory are excluded (`BACKUP_EXCLUDE_REGEXP`): a copy of a database that is being written to is not a backup. The snapshot is at most 15 minutes behind on new activities and six hours on everything else (twelve during a backfill), and everything it lacks is fetched again from Garmin on the next sync.
 
 To send archives to S3, WebDAV, SSH, Azure Blob or Dropbox instead of `./backups`, add the tool's `AWS_*`, `WEBDAV_*`, `SSH_*`, ... variables to the `backup` service; see its README. Encryption (`GPG_PASSPHRASE`) and notifications are configured the same way.
 

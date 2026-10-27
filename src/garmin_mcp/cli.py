@@ -97,7 +97,11 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
             log.exception("request_log insert failed")
 
     client = GarminClient(PendingTransport(), on_sample=record)
-    snapshot = SnapshotPublisher(db)
+    snapshot = SnapshotPublisher(
+        db,
+        idle_interval=float(env.get("GARMIN_SNAPSHOT_INTERVAL_HOURS") or 6) * 3600,
+        activity_delay=float(env.get("GARMIN_SNAPSHOT_ACTIVITY_DELAY_MINUTES") or 15) * 60,
+    )
     engine = SyncEngine(db, client, data_dir, on_change=snapshot.mark_dirty, history_start=env.get("GARMIN_HISTORY_START") or None, strava=StravaSyncConfig.from_env(env))
     mirror = Mirror(db, engine, client, tokenstore=token_dir(env))
     sync_enabled = env_bool("GARMIN_SYNC", True, env)

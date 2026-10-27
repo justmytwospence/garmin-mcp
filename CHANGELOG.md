@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- The snapshot is no longer copied every hour. Each publish copies the whole mirror (7 GB after a few years of FIT data), so an hourly copy cost about 15 GB of disk traffic an hour. A new or re-downloaded activity is now published 15 minutes after it arrives (`GARMIN_SNAPSHOT_ACTIVITY_DELAY_MINUTES`), every other change after six hours (`GARMIN_SNAPSHOT_INTERVAL_HOURS`), twelve during a backfill.
 - Licensed under the [PolyForm Noncommercial License 1.0.0](https://github.com/justmytwospence/garmin-mcp/blob/main/LICENSE.md) instead of MIT: free for personal use, research, education and noncommercial organizations; commercial use requires a separate license. Versions released before 2026-10-27 (up to 1.4.2) remain available under MIT. The code vendored from Taxuspt/garmin_mcp keeps its MIT license, whose full text `NOTICE` now carries.
 
 ## [1.4.2] - 2026-10-26

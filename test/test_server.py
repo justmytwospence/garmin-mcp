@@ -251,6 +251,25 @@ def test_sync_status_reports_login_and_coverage(world):
 # ----------------------------------------------------------------- snapshot and HTTP
 
 
+def test_snapshot_waits_longer_for_routine_changes(world, monkeypatch):
+    snap = world.snapshot
+    world.db.run("DELETE FROM sync_job")  # no backfill: the idle interval applies
+    snap.publish()
+    now = [snap.last_published]
+    monkeypatch.setattr("garmin_mcp.snapshot.time.time", lambda: now[0])
+    snap.mark_dirty("wellness_fit")
+    now[0] += 3600
+    assert not snap.due()  # an hour is not enough for a routine change
+    now[0] += 5 * 3600 + 1
+    assert snap.due()
+    snap.dirty, snap.last_published = False, now[0]
+    snap.mark_dirty("activity_fit")
+    now[0] += 600
+    assert not snap.due()  # a new activity waits for its neighbours a little
+    now[0] += 301
+    assert snap.due()
+
+
 def test_snapshot_publish_and_range_serving(world):
     world.snapshot.mark_dirty()
     path = world.snapshot.publish()

@@ -22,7 +22,7 @@ flowchart LR
     S --> M[(DuckDB mirror)]
     S --> F[FIT files] --> M
     M --> T[MCP tools<br/>/mcp]
-    M -->|hourly copy| P[(read-only snapshot)]
+    M -->|copy after changes| P[(read-only snapshot)]
     T --> C[Claude, ChatGPT, Cursor,<br/>Codex, Gemini CLI, ...]
     P --> X[Grafana, notebooks,<br/>backups, your own tools]
 ```

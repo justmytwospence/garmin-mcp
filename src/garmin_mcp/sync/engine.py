@@ -69,7 +69,7 @@ class SyncEngine:
         client: GarminClient,
         data_dir: str,
         *,
-        on_change: Callable[[], None] | None = None,
+        on_change: Callable[[str], None] | None = None,
         history_start: str | None = None,
         strava: StravaSyncConfig | None = None,
         sleep: Callable[[float], None] | None = None,
@@ -524,7 +524,7 @@ class SyncEngine:
             self.db.run("DELETE FROM sync_job WHERE kind = ? AND key = ?", [kind, key])
             self.log(kind, key, "changed" if changed else "ok")
             if changed and self.on_change:
-                self.on_change()
+                self.on_change(kind)
         except _Deferred as err:
             self.log(kind, key, "deferred", str(err)[:500])
             return "waiting"

@@ -17,6 +17,8 @@ Everything is an environment variable. In Docker, set them in `.env`: `compose.y
 | Variable | Default | Meaning |
 |---|---|---|
 | `GARMIN_DB_PATH` | the user data directory: `~/.local/share/garmin-mcp/garmin.duckdb` (Linux, or `$XDG_DATA_HOME`), `~/Library/Application Support/garmin-mcp/garmin.duckdb` (macOS), `%LOCALAPPDATA%\garmin-mcp\garmin.duckdb` (Windows); `/data/garmin.duckdb` in the image | The mirror. FIT files go to `fit/` next to it, DuckDB's spill files to `duckdb-tmp/`. One process at a time |
+| `GARMIN_SNAPSHOT_INTERVAL_HOURS` | `6` | How long routine changes (wellness days, refetches) wait before the snapshot is republished. Each publish copies the whole mirror, gigabytes after a few years of FIT data |
+| `GARMIN_SNAPSHOT_ACTIVITY_DELAY_MINUTES` | `15` | How soon a new or re-downloaded activity is published (several downloads in a row share one copy) |
 | `GARMIN_SNAPSHOT_DIR` | `snapshot/` next to the mirror | Where the read-only snapshot `garmin.duckdb` is published |
 | `DUCKDB_MEMORY_LIMIT` | DuckDB's default, 80% of RAM (`512MB` in the image) | DuckDB's buffer pool limit. Always set it in a container; see [Operations](operations.md#memory) |
 | `DUCKDB_THREADS` | all cores (`2` in the image) | DuckDB worker threads |

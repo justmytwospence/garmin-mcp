@@ -34,20 +34,34 @@ HOUR = 3600.0
 _RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
+# sync jobs whose changes readers wait for (a new or re-downloaded activity): published after `activity_delay`
+# instead of the idle interval, which covers everything else (wellness days, refetches)
+ACTIVITY_KINDS = frozenset({"activity_fit", "list_recent", "poll", "strava_sync"})
+
+
 class SnapshotPublisher:
-    def __init__(self, db: Database, name: str = "garmin.duckdb", *, idle_interval: float = HOUR, backfill_interval: float = 6 * HOUR) -> None:
+    """Publishes a copy of the mirror after changes. Each publish copies the whole file (gigabytes for a few years of
+    FIT data), so routine changes wait `idle_interval` (6 h by default) and a new activity `activity_delay` (15 min,
+    so several downloads in a row share one copy)."""
+
+    def __init__(self, db: Database, name: str = "garmin.duckdb", *, idle_interval: float = 6 * HOUR, backfill_interval: float = 12 * HOUR,
+                 activity_delay: float = 900.0) -> None:
         self.db = db
         self.path = Path(db.options.snapshot_dir) / name
         self.idle_interval = idle_interval
         self.backfill_interval = backfill_interval
+        self.activity_delay = activity_delay
         self.dirty = True
+        self.urgent_since: float | None = None
         self.last_published = self.path.stat().st_mtime if self.path.exists() else 0.0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
-    def mark_dirty(self) -> None:
+    def mark_dirty(self, kind: str | None = None) -> None:
         self.dirty = True
+        if kind in ACTIVITY_KINDS and self.urgent_since is None:
+            self.urgent_since = time.time()
 
     def publish(self) -> Path:
         """Checkpoint, copy the database file and swap the copy in. Safe to call from any thread."""
@@ -66,6 +80,7 @@ class SnapshotPublisher:
                 shutil.copyfile(source, tmp)
             os.replace(tmp, self.path)
             self.dirty = False
+            self.urgent_since = None
             self.last_published = time.time()
             log.info("snapshot: published %s (%d bytes)", self.path, self.path.stat().st_size)
             return self.path
@@ -73,6 +88,8 @@ class SnapshotPublisher:
     def due(self) -> bool:
         if not self.dirty:
             return False
+        if self.urgent_since is not None and time.time() - self.urgent_since >= self.activity_delay:
+            return True
         backlog = int(self.db.scalar("SELECT count(*) FROM sync_job WHERE priority >= 20") or 0)
         interval = self.backfill_interval if backlog > 0 else self.idle_interval
         return time.time() - self.last_published >= interval
