@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- 1.5.0 still copied the snapshot about twice an hour: activity-list refreshes counted as new activities, and they report a change on most runs. Only a downloaded FIT file now publishes early (15 minutes), and never more than once an hour.
+
 ## [1.5.0] - 2026-10-27
 
 ### Changed

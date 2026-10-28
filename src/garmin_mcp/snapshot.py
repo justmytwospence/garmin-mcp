@@ -34,9 +34,12 @@ HOUR = 3600.0
 _RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
-# sync jobs whose changes readers wait for (a new or re-downloaded activity): published after `activity_delay`
-# instead of the idle interval, which covers everything else (wellness days, refetches)
-ACTIVITY_KINDS = frozenset({"activity_fit", "list_recent", "poll", "strava_sync"})
+# sync jobs whose changes readers wait for (a new or re-downloaded activity's FIT file): published after
+# `activity_delay` instead of the idle interval, which covers everything else. Activity-list refreshes (list_recent,
+# poll) report a change on most runs (metadata moves), so they wait for the idle interval like the rest.
+ACTIVITY_KINDS = frozenset({"activity_fit"})
+# however many activities arrive, at most one copy an hour
+MIN_GAP = HOUR
 
 
 class SnapshotPublisher:
@@ -88,7 +91,8 @@ class SnapshotPublisher:
     def due(self) -> bool:
         if not self.dirty:
             return False
-        if self.urgent_since is not None and time.time() - self.urgent_since >= self.activity_delay:
+        now = time.time()
+        if self.urgent_since is not None and now - self.urgent_since >= self.activity_delay and now - self.last_published >= MIN_GAP:
             return True
         backlog = int(self.db.scalar("SELECT count(*) FROM sync_job WHERE priority >= 20") or 0)
         interval = self.backfill_interval if backlog > 0 else self.idle_interval

@@ -263,11 +263,18 @@ def test_snapshot_waits_longer_for_routine_changes(world, monkeypatch):
     now[0] += 5 * 3600 + 1
     assert snap.due()
     snap.dirty, snap.last_published = False, now[0]
+    snap.mark_dirty("list_recent")
+    now[0] += 3 * 3600
+    assert not snap.due()  # an activity-list refresh is routine
     snap.mark_dirty("activity_fit")
     now[0] += 600
     assert not snap.due()  # a new activity waits for its neighbours a little
     now[0] += 301
     assert snap.due()
+    snap.dirty, snap.urgent_since, snap.last_published = False, None, now[0]
+    snap.mark_dirty("activity_fit")
+    now[0] += 1800
+    assert not snap.due()  # and never more than one copy an hour
 
 
 def test_snapshot_publish_and_range_serving(world):
