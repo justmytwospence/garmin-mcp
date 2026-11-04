@@ -53,6 +53,7 @@ def test_export_writes_manifest_and_parquet(setup):
     assert m["schema_version"] == 1 and m["importer"] == "garmin-mcp@test"
     [e] = m["activities"]
     assert e["id"] == f"garmin:{aid}" and e["sources"] == [{"kind": "garmin", "id": str(aid)}] and e["n"] == 30
+    assert e["hr_sensor"] is False  # fitgen writes no device info
     f = exp.out_dir / e["file"]
     assert e["sha256"] == hashlib.sha256(f.read_bytes()).hexdigest()
     con = duckdb.connect()

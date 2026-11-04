@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- The canonical export's manifest entries carry `hr_sensor`: whether a heart-rate strap or armband was connected (from the FIT device info), for apps that calibrate against strap-recorded activities.
+
 ## [1.6.0] - 2026-11-03
 
 ### Added

@@ -127,10 +127,17 @@ class CanonicalExporter:
                     GROUP BY 1
                 )
                 SELECT s.activity_id, s.n, s.records || '|' || s.files AS fingerprint, s.start, a.activity_type, a.activity_name, a.manufacturer,
-                       a.manual_activity,
+                       a.manual_activity, coalesce(h.hr_sensor, false) AS hr_sensor,
                        coalesce(round((epoch(a.start_time_local::TIMESTAMP) - epoch(a.start_time_gmt)) / 60)::INTEGER, 0)
                            AS utc_offset_min
                 FROM s JOIN g.activity a USING (activity_id)
+                LEFT JOIN (
+                    -- a heart-rate strap or armband was connected (the Data cubes notebook's rule)
+                    SELECT activity_id, bool_or(antplus_device_type = 'heart_rate'
+                                                OR (source_type = 'bluetooth_low_energy' AND device_type = '1')
+                                                OR garmin_product ILIKE 'hrm%') AS hr_sensor
+                    FROM g.fit_device_info WHERE activity_id IS NOT NULL GROUP BY 1
+                ) h USING (activity_id)
                 WHERE a.deleted_at IS NULL
                 ORDER BY s.start, s.activity_id
                 """
@@ -182,7 +189,7 @@ class CanonicalExporter:
 
         now = _iso(datetime.now(UTC))
         entries = []
-        for aid, n, fingerprint, start, atype, name, manufacturer, manual, offset in acts:
+        for aid, n, fingerprint, start, atype, name, manufacturer, manual, hr_sensor, offset in acts:
             aid = int(aid)
             key = f"garmin:{aid}"
             old = previous.get(key, {})
@@ -199,6 +206,7 @@ class CanonicalExporter:
                 "indoor": (atype or "") in INDOOR_TYPES,
                 "manual": bool(manual),
                 "cadence_unit": cadence_unit(sport),
+                "hr_sensor": bool(hr_sensor),
                 "n": int(n),
                 "sha256": hashes.get(aid, old.get("sha256")),
                 "fingerprint": fingerprint,
