@@ -59,7 +59,7 @@ def test_export_writes_manifest_and_parquet(setup):
     cols = con.execute(f"DESCRIBE SELECT * FROM '{f}'").fetchall()
     assert [(c[0], c[1]) for c in cols] == [tuple(c) for c in SCHEMA["columns"]]
     rows = con.execute(f"SELECT t, lat FROM '{f}' ORDER BY t").fetchall()
-    assert [r[0] for r in rows] == list(range(30))
+    assert [r[0] for r in rows] == list(range(30)) and len(rows) == e["n"]
     assert abs(rows[1][1] - 45e7) < 1e6
 
 

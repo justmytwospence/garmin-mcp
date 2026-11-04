@@ -8,7 +8,7 @@ Layout of the export directory (GARMIN_EXPORT_DIR, default <data dir>/export, pl
 
 Turned on with GARMIN_EXPORT=canonical; served with bearer EXPORT_TOKEN. The exporter reads the snapshot over
 its own read-only DuckDB connection, never the live mirror, and rewrites only activities whose FIT data changed
-(a fingerprint of the record count and FIT file ids), so a routine publish writes almost nothing.
+(a fingerprint of the record count and FIT file ids; `n` is the file's row count, one per second), so a routine publish writes almost nothing.
 
 Values follow the Data cubes notebook's loader exactly: one row per whole-second timestamp (the row with the
 greatest distance wins a tie), t in seconds from the activity's first record, missing values as nulls.
@@ -119,14 +119,14 @@ class CanonicalExporter:
             acts = con.execute(
                 """
                 WITH s AS (
-                    SELECT r.activity_id, count(*) AS n,
+                    SELECT r.activity_id, count(*) AS records, count(DISTINCT epoch(r.timestamp)::BIGINT) AS n,
                            string_agg(DISTINCT r.fit_file_id, ',' ORDER BY r.fit_file_id) AS files,
                            min(r.timestamp) AS start
                     FROM g.fit_record r
                     WHERE r.timestamp IS NOT NULL AND r.activity_id IS NOT NULL
                     GROUP BY 1
                 )
-                SELECT s.activity_id, s.n, s.files, s.start, a.activity_type, a.activity_name, a.manufacturer,
+                SELECT s.activity_id, s.n, s.records || '|' || s.files AS fingerprint, s.start, a.activity_type, a.activity_name, a.manufacturer,
                        a.manual_activity,
                        coalesce(round((epoch(a.start_time_local::TIMESTAMP) - epoch(a.start_time_gmt)) / 60)::INTEGER, 0)
                            AS utc_offset_min
@@ -140,10 +140,10 @@ class CanonicalExporter:
                 previous = {e["id"]: e for e in json.loads(self.manifest_path.read_text()).get("activities", [])}
 
             need: list[int] = []
-            for aid, n, files, *_ in acts:
+            for aid, _n, fingerprint, *_ in acts:
                 old = previous.get(f"garmin:{aid}")
                 f = activities_dir / f"garmin-{aid}.parquet"
-                if old is None or old.get("fingerprint") != f"{n}|{files}" or not f.exists():
+                if old is None or old.get("fingerprint") != fingerprint or not f.exists():
                     need.append(int(aid))
 
             hashes: dict[int, str] = {}
@@ -182,7 +182,7 @@ class CanonicalExporter:
 
         now = _iso(datetime.now(UTC))
         entries = []
-        for aid, n, files, start, atype, name, manufacturer, manual, offset in acts:
+        for aid, n, fingerprint, start, atype, name, manufacturer, manual, offset in acts:
             aid = int(aid)
             key = f"garmin:{aid}"
             old = previous.get(key, {})
@@ -201,7 +201,7 @@ class CanonicalExporter:
                 "cadence_unit": cadence_unit(sport),
                 "n": int(n),
                 "sha256": hashes.get(aid, old.get("sha256")),
-                "fingerprint": f"{n}|{files}",
+                "fingerprint": fingerprint,
                 "updated_at": now if aid in hashes else old.get("updated_at", now),
                 "file": f"activities/garmin-{aid}.parquet",
             })
