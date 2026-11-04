@@ -61,6 +61,7 @@ nav:
   - Integrations:
       - Extras: extras.md
       - Strava sync: strava-sync.md
+      - Canonical export: canonical-export.md
   - Operate:
       - Operations: operations.md
       - Troubleshooting: troubleshooting.md

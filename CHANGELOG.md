@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- A canonical activity export for apps such as curves: with `GARMIN_EXPORT=canonical`, every activity's samples are written after each snapshot publish as a manifest plus one Parquet file per activity (only changed activities are rewritten), and served at `/export/canonical/v1/` with the bearer `EXPORT_TOKEN`. See [Canonical export](https://justmytwospence.github.io/garmin-mcp/canonical-export/).
+
 ## [1.5.1] - 2026-10-28
 
 ### Fixed
