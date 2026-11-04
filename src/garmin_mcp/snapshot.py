@@ -20,6 +20,7 @@ import re
 import shutil
 import threading
 import time
+from collections.abc import Callable
 from email.utils import formatdate
 from pathlib import Path
 
@@ -48,8 +49,10 @@ class SnapshotPublisher:
     so several downloads in a row share one copy)."""
 
     def __init__(self, db: Database, name: str = "garmin.duckdb", *, idle_interval: float = 6 * HOUR, backfill_interval: float = 12 * HOUR,
-                 activity_delay: float = 900.0) -> None:
+                 activity_delay: float = 900.0, on_publish: Callable[[Path], object] | None = None) -> None:
         self.db = db
+        # called with the snapshot path once at start (when one exists) and after every publish: the canonical export
+        self.on_publish = on_publish
         self.path = Path(db.options.snapshot_dir) / name
         self.idle_interval = idle_interval
         self.backfill_interval = backfill_interval
@@ -98,13 +101,26 @@ class SnapshotPublisher:
         interval = self.backfill_interval if backlog > 0 else self.idle_interval
         return time.time() - self.last_published >= interval
 
+    def _after_publish(self) -> None:
+        if self.on_publish is None or not self.path.exists():
+            return
+        try:
+            self.on_publish(self.path)
+        except Exception:  # noqa: BLE001
+            log.exception("export failed")
+
     def _run(self) -> None:
+        self._after_publish()
         while not self._stop.is_set():
+            published = False
             try:
                 if self.due():
                     self.publish()
+                    published = True
             except Exception:  # noqa: BLE001
                 log.exception("snapshot: publish failed")
+            if published:
+                self._after_publish()
             self._stop.wait(60)
 
     def start(self) -> None:

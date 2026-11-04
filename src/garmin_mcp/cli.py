@@ -19,6 +19,7 @@ from typing import Any
 
 from .db.database import Database, DatabaseOptions, exit_on_fatal
 from .env import env_bool, env_int
+from .export import CanonicalExporter
 from .garmin.auth import LoginManager, PendingTransport, is_cn, token_dir
 from .garmin.client import GarminClient, RequestSample
 from .mirror import Mirror
@@ -41,6 +42,7 @@ class Runtime:
     login: LoginManager | None
     sync_enabled: bool
     db_path: str
+    exporter: CanonicalExporter | None = None
 
     def close(self) -> None:
         self.snapshot.stop()
@@ -70,6 +72,9 @@ def validate_settings(env: dict[str, str]) -> None:
     is_cn(env)
     env_int("DUCKDB_THREADS", 0, env, minimum=1)
     env_int("PORT", 8000, env, minimum=1)
+    export = (env.get("GARMIN_EXPORT") or "").strip().lower()
+    if export not in ("", "off", "canonical"):
+        raise ValueError(f'GARMIN_EXPORT must be "off" or "canonical", got "{export}"')
     transport = (env.get("MCP_TRANSPORT") or "stdio").strip().lower()
     if transport not in ("stdio", "http"):
         raise ValueError(f'MCP_TRANSPORT must be "stdio" or "http", got "{transport}"')
@@ -97,8 +102,12 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
             log.exception("request_log insert failed")
 
     client = GarminClient(PendingTransport(), on_sample=record)
+    exporter = None
+    if (env.get("GARMIN_EXPORT") or "").strip().lower() == "canonical":
+        exporter = CanonicalExporter(Path(env.get("GARMIN_EXPORT_DIR") or Path(data_dir) / "export") / "canonical-v1", importer=f"garmin-mcp@{VERSION}")
     snapshot = SnapshotPublisher(
         db,
+        on_publish=exporter.run if exporter else None,
         idle_interval=float(env.get("GARMIN_SNAPSHOT_INTERVAL_HOURS") or 6) * 3600,
         activity_delay=float(env.get("GARMIN_SNAPSHOT_ACTIVITY_DELAY_MINUTES") or 15) * 60,
     )
@@ -106,7 +115,7 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
     mirror = Mirror(db, engine, client, tokenstore=token_dir(env))
     sync_enabled = env_bool("GARMIN_SYNC", True, env)
     login = LoginManager(client, token_dir(env), email=env.get("GARMIN_EMAIL") or None, password=env.get("GARMIN_PASSWORD") or None, cn=is_cn(env))
-    rt = Runtime(db, client, engine, mirror, snapshot, login, sync_enabled, db_path)
+    rt = Runtime(db, client, engine, mirror, snapshot, login, sync_enabled, db_path, exporter)
     if start:
         login.start()
         if sync_enabled:
@@ -153,6 +162,8 @@ def serve(args: argparse.Namespace) -> int:
                 allowed_hosts=allowed,
                 mcp_token=mcp_token,
                 snapshot_token=env.get("SNAPSHOT_TOKEN") or "",
+                exporter=rt.exporter,
+                export_token=env.get("EXPORT_TOKEN") or "",
                 stateless=env_bool("MCP_STATELESS_HTTP", False, env),
             )
             print(f"{SERVER_NAME} {VERSION} listening on http://{host}:{port}/mcp (mirror: {rt.db_path}, sync {sync_label})", file=sys.stderr)

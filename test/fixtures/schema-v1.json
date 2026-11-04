@@ -1,0 +1,3 @@
+{"version": 1, "manifest_keys": ["schema_version", "importer", "generated_at", "activities"],
+ "entry_keys": ["id", "sources", "start_time", "utc_offset_min", "sport", "source_sport", "name", "device", "indoor", "manual", "cadence_unit", "n", "sha256", "fingerprint", "updated_at", "file"],
+ "columns": [["t", "INTEGER"], ["lat", "INTEGER"], ["lng", "INTEGER"], ["alt", "DOUBLE"], ["dist", "DOUBLE"], ["hr", "FLOAT"], ["power", "FLOAT"], ["cadence", "FLOAT"]]}

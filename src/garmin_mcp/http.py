@@ -1,5 +1,6 @@
 """The HTTP surface: the MCP Streamable HTTP endpoint at /mcp and /, GET /health, and
-the snapshot at /snapshot.duckdb (bearer SNAPSHOT_TOKEN, byte ranges). An optional
+the snapshot at /snapshot.duckdb (bearer SNAPSHOT_TOKEN, byte ranges), the canonical export at
+/export/canonical/v1/ (bearer EXPORT_TOKEN; manifest.json and activities/*.parquet). An optional
 MCP_BEARER_TOKEN guards the MCP endpoint; MCP_ALLOWED_HOSTS turns on the SDK's Host
 header check (DNS-rebinding protection)."""
 
@@ -15,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .export import CanonicalExporter
 from .snapshot import SnapshotPublisher
 
 MCP_PATHS = ("/mcp", "/")
@@ -47,6 +49,8 @@ def build_app(
     mcp_token: str = "",
     snapshot_token: str = "",
     stateless: bool = False,
+    exporter: CanonicalExporter | None = None,
+    export_token: str = "",
 ) -> ASGIApp:
     inner = server.streamable_http_app(streamable_http_path="/mcp", host="0.0.0.0", transport_security=transport_security(allowed_hosts or []), stateless_http=stateless)
     health_body = health or {"status": "ok"}
@@ -69,6 +73,16 @@ def build_app(
                 await Response("Unauthorized", status_code=401, media_type="text/plain")(scope, receive, send)
                 return
             await snapshot.serve(request)(scope, receive, send)
+            return
+        if path.startswith("/export/canonical/v1/") and method in ("GET", "HEAD"):
+            request = Request(scope, receive)
+            if not export_token or exporter is None:
+                await Response("Export serving is disabled (set GARMIN_EXPORT=canonical and EXPORT_TOKEN)", status_code=404, media_type="text/plain")(scope, receive, send)
+                return
+            if not bearer_matches(export_token, request.headers.get("authorization")):
+                await Response("Unauthorized", status_code=401, media_type="text/plain")(scope, receive, send)
+                return
+            await exporter.serve(path.removeprefix("/export/canonical/v1/"), request)(scope, receive, send)
             return
         if path in MCP_PATHS:
             if mcp_token:
