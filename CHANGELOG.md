@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-03
+
 ### Added
 
 - A canonical activity export for apps such as curves: with `GARMIN_EXPORT=canonical`, every activity's samples are written after each snapshot publish as a manifest plus one Parquet file per activity (only changed activities are rewritten), and served at `/export/canonical/v1/` with the bearer `EXPORT_TOKEN`. See [Canonical export](https://justmytwospence.github.io/garmin-mcp/canonical-export/).
@@ -130,7 +132,8 @@ The first release meant for other people: a self-hosted compose stack with docum
 
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
-[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.5.1...v1.6.0
 [1.4.2]: https://github.com/justmytwospence/garmin-mcp/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/justmytwospence/garmin-mcp/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.3.0...v1.4.0
