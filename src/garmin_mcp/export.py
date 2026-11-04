@@ -11,7 +11,7 @@ its own read-only DuckDB connection, never the live mirror, and rewrites only ac
 (a fingerprint of the record count and FIT file ids; `n` is the file's row count, one per second), so a routine publish writes almost nothing.
 
 Values follow the Data cubes notebook's loader exactly: one row per whole-second timestamp (the row with the
-greatest distance wins a tie), t in seconds from the activity's first record, missing values as nulls.
+greatest distance wins, then the earliest record, so the choice is deterministic), t in seconds from the activity's first record, missing values as nulls.
 """
 
 from __future__ import annotations
@@ -159,7 +159,7 @@ class CanonicalExporter:
                         FROM g.fit_record
                         WHERE activity_id IN ({", ".join(map(str, ids))}) AND timestamp IS NOT NULL
                         QUALIFY row_number() OVER (PARTITION BY activity_id, epoch(timestamp)::BIGINT
-                                                   ORDER BY distance DESC NULLS LAST) = 1)
+                                                   ORDER BY distance DESC NULLS LAST, fit_file_id, idx) = 1)
                       SELECT activity_id,
                              (ts - min(ts) OVER (PARTITION BY activity_id))::INTEGER AS t,
                              round(position_lat * 1e7)::INTEGER AS lat, round(position_long * 1e7)::INTEGER AS lng,
