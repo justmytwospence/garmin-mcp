@@ -21,6 +21,8 @@ canonical-v1/activities/garmin-<id>.parquet  GET /export/canonical/v1/activities
 
 Both need `Authorization: Bearer <EXPORT_TOKEN>`.
 
+A browser app on another origin needs CORS: set `EXPORT_CORS_ORIGINS` to its origin(s). The export routes then answer the preflight (including Private Network Access) and carry `Access-Control-Allow-Origin` on every response, 401 and 404 included. No other route gets CORS headers.
+
 `manifest.json` has `schema_version` (1), `importer`, `generated_at` and `activities`, one entry per activity: `id` (`garmin:<id>`), `sources`, `start_time` (UTC, the first record), `utc_offset_min`, `sport` (canonical), `source_sport` (Garmin's type), `name`, `device`, `indoor`, `manual`, `cadence_unit`, `hr_sensor` (a heart-rate strap or armband was connected), `n` (rows), `sha256` and `fingerprint` of the file, `updated_at` and `file`.
 
 Each Parquet file (snappy) has one row per recorded second: `t` (INTEGER seconds from the first record), `lat`, `lng` (INTEGER degrees x 1e7), `alt` and `dist` (DOUBLE metres), `hr`, `power`, `cadence` (FLOAT; cadence as the FIT file counts it, one foot's cycles on foot). Missing values are nulls. When a second has several records, the one with the greatest distance is kept, and among equal distances the earliest record.

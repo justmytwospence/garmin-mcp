@@ -85,6 +85,12 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://garmin.example.com/mcp 
 # 401
 ```
 
+## Personal API key
+
+`GARMIN_TRANSPORT=personal` makes the server talk to Garmin through the official Personal API instead of the email/password login. Create a key at https://connect.garmin.com/app/settings/personalApiToken and set `GARMIN_PERSONAL_API_KEY` (or `GARMIN_PERSONAL_API_KEY_FILE`). The key is exchanged for a bearer token that is cached in the token directory and renewed automatically; no MFA and no `garmin-mcp-auth`.
+
+It is read-only and partial. It syncs the activity list, activity details, original FIT files, daily summaries, steps, HRV, Body Battery, weigh-ins and the profile settings. Everything else (splits, weather, stress, sleep, wellness FIT files, devices, courses, workouts) is skipped, and tools that write return an error. The profile table stays empty, so the time zone is UTC.
+
 ## Which one
 
 | | Bearer token | OAuth profile |

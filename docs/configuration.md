@@ -21,6 +21,10 @@ Everything is an environment variable. In Docker, set them in `.env`: `compose.y
 | `GARMIN_EXPORT` | `off` | `canonical` writes the [canonical export](canonical-export.md) after each snapshot publish |
 | `GARMIN_EXPORT_DIR` | `<data dir>/export` | Where the canonical export is written |
 | `EXPORT_TOKEN` | unset | Bearer token for `/export/canonical/v1/`; the route is disabled without it |
+| `EXPORT_CORS_ORIGINS` | unset | Comma-separated origins (for example `https://effortcurve.com`) a browser app may read the export from; CORS headers go on `/export/canonical/v1/` only |
+| `GARMIN_TRANSPORT` | `connect` | `personal` uses Garmin's official Personal API instead of the email/password login; see [authentication](authentication.md#personal-api-key) |
+| `GARMIN_PERSONAL_API_KEY`, `GARMIN_PERSONAL_API_KEY_FILE` | unset | The Personal API key (or a file holding it); required with `GARMIN_TRANSPORT=personal` |
+| `GARMIN_PERSONAL_API_BASE_URL` | `https://personal.connectapi.garmin.com` | Override for tests |
 | `GARMIN_SNAPSHOT_ACTIVITY_DELAY_MINUTES` | `15` | How soon a new or re-downloaded activity is published (several downloads in a row share one copy) |
 | `GARMIN_SNAPSHOT_DIR` | `snapshot/` next to the mirror | Where the read-only snapshot `garmin.duckdb` is published |
 | `DUCKDB_MEMORY_LIMIT` | DuckDB's default, 80% of RAM (`512MB` in the image) | DuckDB's buffer pool limit. Always set it in a container; see [Operations](operations.md#memory) |
