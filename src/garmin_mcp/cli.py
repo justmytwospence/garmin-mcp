@@ -164,6 +164,7 @@ def serve(args: argparse.Namespace) -> int:
                 snapshot_token=env.get("SNAPSHOT_TOKEN") or "",
                 exporter=rt.exporter,
                 export_token=env.get("EXPORT_TOKEN") or "",
+                export_cors_origins=[o.strip() for o in (env.get("EXPORT_CORS_ORIGINS") or "").split(",") if o.strip()],
                 stateless=env_bool("MCP_STATELESS_HTTP", False, env),
             )
             print(f"{SERVER_NAME} {VERSION} listening on http://{host}:{port}/mcp (mirror: {rt.db_path}, sync {sync_label})", file=sys.stderr)

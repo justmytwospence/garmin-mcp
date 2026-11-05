@@ -28,6 +28,19 @@ def bearer_matches(token: str, header: str | None) -> bool:
     return len(given) == len(expected) and hmac.compare_digest(given, expected)
 
 
+def _cors_send(send: Send, origin: str) -> Send:
+    """Wrap `send` so the response carries the CORS headers for an allowed origin."""
+
+    async def wrapped(message: Any) -> None:
+        if message["type"] == "http.response.start":
+            headers = list(message.get("headers", []))
+            headers += [(b"access-control-allow-origin", origin.encode()), (b"vary", b"Origin"), (b"access-control-expose-headers", b"ETag")]
+            message = {**message, "headers": headers}
+        await send(message)
+
+    return wrapped
+
+
 def transport_security(allowed_hosts: list[str]) -> TransportSecuritySettings:
     if not allowed_hosts:
         return TransportSecuritySettings(enable_dns_rebinding_protection=False)
@@ -51,9 +64,11 @@ def build_app(
     stateless: bool = False,
     exporter: CanonicalExporter | None = None,
     export_token: str = "",
+    export_cors_origins: list[str] | None = None,
 ) -> ASGIApp:
     inner = server.streamable_http_app(streamable_http_path="/mcp", host="0.0.0.0", transport_security=transport_security(allowed_hosts or []), stateless_http=stateless)
     health_body = health or {"status": "ok"}
+    cors_origins = set(export_cors_origins or [])
 
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -74,8 +89,27 @@ def build_app(
                 return
             await snapshot.serve(request)(scope, receive, send)
             return
+        if path.startswith("/export/canonical/v1/") and method == "OPTIONS":
+            request = Request(scope, receive)
+            origin = request.headers.get("origin") or ""
+            headers: dict[str, str] = {}
+            if origin in cors_origins:
+                headers = {
+                    "access-control-allow-origin": origin,
+                    "access-control-allow-methods": "GET, HEAD, OPTIONS",
+                    "access-control-allow-headers": "Authorization",
+                    "access-control-max-age": "86400",
+                    "vary": "Origin",
+                }
+                if request.headers.get("access-control-request-private-network") == "true":
+                    headers["access-control-allow-private-network"] = "true"
+            await Response(status_code=204, headers=headers)(scope, receive, send)
+            return
         if path.startswith("/export/canonical/v1/") and method in ("GET", "HEAD"):
             request = Request(scope, receive)
+            origin = request.headers.get("origin") or ""
+            if origin in cors_origins:
+                send = _cors_send(send, origin)
             if not export_token or exporter is None:
                 await Response("Export serving is disabled (set GARMIN_EXPORT=canonical and EXPORT_TOKEN)", status_code=404, media_type="text/plain")(scope, receive, send)
                 return
