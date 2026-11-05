@@ -63,6 +63,17 @@ def default_db_path(env: dict[str, str] | None = None) -> str:
     return str(base / "garmin-mcp" / "garmin.duckdb")
 
 
+def personal_key(env: dict[str, str]) -> str:
+    key = (env.get("GARMIN_PERSONAL_API_KEY") or "").strip()
+    if key:
+        return key
+    path = (env.get("GARMIN_PERSONAL_API_KEY_FILE") or "").strip()
+    try:
+        return Path(path).expanduser().read_text().strip() if path else ""
+    except OSError:
+        return ""
+
+
 def validate_settings(env: dict[str, str]) -> None:
     """Parse every setting that can be wrong, so a bad value is one line on stderr, not a traceback."""
     ToolFilter.from_env(env)
@@ -75,6 +86,11 @@ def validate_settings(env: dict[str, str]) -> None:
     export = (env.get("GARMIN_EXPORT") or "").strip().lower()
     if export not in ("", "off", "canonical"):
         raise ValueError(f'GARMIN_EXPORT must be "off" or "canonical", got "{export}"')
+    gt = (env.get("GARMIN_TRANSPORT") or "connect").strip().lower()
+    if gt not in ("connect", "personal"):
+        raise ValueError(f'GARMIN_TRANSPORT must be "connect" or "personal", got "{gt}"')
+    if gt == "personal" and not personal_key(env):
+        raise ValueError("GARMIN_TRANSPORT=personal needs GARMIN_PERSONAL_API_KEY (or GARMIN_PERSONAL_API_KEY_FILE): create a key at https://connect.garmin.com/app/settings/personalApiToken")
     transport = (env.get("MCP_TRANSPORT") or "stdio").strip().lower()
     if transport not in ("stdio", "http"):
         raise ValueError(f'MCP_TRANSPORT must be "stdio" or "http", got "{transport}"')
@@ -114,7 +130,12 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
     engine = SyncEngine(db, client, data_dir, on_change=snapshot.mark_dirty, history_start=env.get("GARMIN_HISTORY_START") or None, strava=StravaSyncConfig.from_env(env))
     mirror = Mirror(db, engine, client, tokenstore=token_dir(env))
     sync_enabled = env_bool("GARMIN_SYNC", True, env)
-    login = LoginManager(client, token_dir(env), email=env.get("GARMIN_EMAIL") or None, password=env.get("GARMIN_PASSWORD") or None, cn=is_cn(env))
+    if (env.get("GARMIN_TRANSPORT") or "connect").strip().lower() == "personal":
+        from .garmin.auth import PersonalLogin
+
+        login: LoginManager = PersonalLogin(client, token_dir(env), key=personal_key(env), base_url=env.get("GARMIN_PERSONAL_API_BASE_URL") or None)
+    else:
+        login = LoginManager(client, token_dir(env), email=env.get("GARMIN_EMAIL") or None, password=env.get("GARMIN_PASSWORD") or None, cn=is_cn(env))
     rt = Runtime(db, client, engine, mirror, snapshot, login, sync_enabled, db_path, exporter)
     if start:
         login.start()
@@ -126,7 +147,7 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
 
 def health_body(rt: Runtime) -> dict[str, Any]:
     strava = rt.engine.strava_sync
-    return {"status": "ok", "name": SERVER_NAME, "version": VERSION, "sync": "on" if rt.sync_enabled else "off", "strava_sync": ",".join(strava.config.parts) if strava else "off"}
+    return {"status": "ok", "name": SERVER_NAME, "version": VERSION, "sync": "on" if rt.sync_enabled else "off", "transport": "personal" if rt.client.partial else "connect", "strava_sync": ",".join(strava.config.parts) if strava else "off"}
 
 
 def serve(args: argparse.Namespace) -> int:

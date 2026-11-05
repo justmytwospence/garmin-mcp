@@ -288,3 +288,25 @@ class LoginManager:
             return
         self.client.transport = transport
         self.state = "ready"
+
+
+class PersonalLogin(LoginManager):
+    """The Personal API transport: exchange the API key for a bearer token once at startup."""
+
+    def __init__(self, client: Any, tokenstore: str, *, key: str, base_url: str | None = None) -> None:
+        super().__init__(client, tokenstore)
+        self.key = key
+        self.base_url = base_url
+
+    def attempt(self) -> Transport | None:
+        from .personal import DEFAULT_BASE, FIX, PersonalApiTransport, PersonalToken
+
+        token = PersonalToken(self.key, Path(self.tokenstore) / "personal-api-token.json", self.base_url or DEFAULT_BASE)
+        try:
+            token.get()
+        except Exception as err:  # noqa: BLE001
+            kind = "api_key_rejected" if isinstance(err, AuthError) else "unreachable"
+            self.problem = LoginProblem(kind, f"Could not get a Personal API token: {str(err)[:200]}.", FIX)
+            return None
+        log.info("Personal API token ready (cached in %s)", self.tokenstore)
+        return PersonalApiTransport(token)

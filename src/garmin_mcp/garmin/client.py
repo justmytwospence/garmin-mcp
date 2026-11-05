@@ -58,6 +58,10 @@ class AuthError(GarminError):
     """Tokens were rejected; a person must run garmin-mcp-auth."""
 
 
+class Unsupported(GarminError):
+    """The active transport cannot serve this request (the Personal API transport is read-only and partial)."""
+
+
 class Unavailable(GarminError):
     """5xx or network error after retries."""
 
@@ -291,6 +295,14 @@ class GarminClient:
             raise AuthError("Not logged in yet (the login runs once at startup; try again in a few seconds)")
         return dn
 
+    def supports(self, path_template: str) -> bool:
+        """Whether the active transport serves this dataset path (the Connect transport serves all)."""
+        return getattr(self.transport, "supports", lambda _p: True)(path_template)
+
+    @property
+    def partial(self) -> bool:
+        return bool(getattr(self.transport, "partial", False))
+
     # ------------------------------------------------------------- pacing
 
     def backoff_remaining(self) -> float:
@@ -403,9 +415,10 @@ class GarminClient:
                     status = err.status
                     with self.state.lock:
                         if not self.state.auth_error:
-                            self.state.auth_error = f"Garmin rejected the session while requesting {path} (HTTP {err.status or 'error'}: {str(err)[:200]}); the tokens expired or were revoked. {auth_fix()}"
+                            fix = getattr(self.transport, "auth_fix_text", None) or auth_fix()
+                            self.state.auth_error = f"Garmin rejected the session while requesting {path} (HTTP {err.status or 'error'}: {str(err)[:200]}); the tokens expired or were revoked. {fix}"
                             self.state.auth_error_kind = "expired"
-                            self.state.auth_error_fix = auth_fix()
+                            self.state.auth_error_fix = fix
                         self.state.auth_error_at = self._now()
                         self.state.last_error = f"auth: {err}"
                     log.error("garmin: authentication failed on %s: %s. Background sync is stopped; %s", path, err, auth_fix())

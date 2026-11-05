@@ -32,13 +32,15 @@ from zoneinfo import ZoneInfo
 
 from ..db.database import Database
 from ..fit.decode import PARSER_VERSION
-from ..garmin.client import AuthError, GarminClient, Priority, RateLimited
+from ..garmin.client import AuthError, GarminClient, Priority, RateLimited, Unsupported
 from ..garmin.datasets import (
     ACTIVITY_DATASETS,
+    ACTIVITY_FIT_PATH,
     DAY_DATASETS,
     INTRADAY_DATASETS,
     RANGE_DATASETS,
     SNAPSHOT_DATASETS,
+    WELLNESS_FIT_PATH,
     dataset,
 )
 from ..strava_sync import StravaSync, StravaSyncConfig
@@ -184,17 +186,19 @@ class SyncEngine:
         start = self.history_start()
         rows: list[tuple[str, str, int, int]] = []
         have_profile = self.db.scalar("SELECT count(*) FROM user_profile") or 0
-        if start is not None and have_profile:
+        if start is not None and (have_profile or self.client.partial):
             yesterday = today - timedelta(days=1)
             rows += self._plan_days(start, yesterday, today)
             rows += self._plan_ranges(start, today)
-            rows += self._plan_wellness_files(start, yesterday, today)
-            rows += self._plan_calendar(start, today)
+            if not self.client.partial:
+                rows += self._plan_wellness_files(start, yesterday, today)
+                rows += self._plan_calendar(start, today)
         rows += self._plan_activities(today)
         rows += self._plan_snapshots(today)
         rows += self._plan_reparse()
         added = self._enqueue_many(rows)
-        added += self._plan_reloads(today)
+        if self.client.supports(WELLNESS_FIT_PATH):
+            added += self._plan_reloads(today)
         return added
 
     def _missing_days(self, type_: str, start: date, end: date) -> list[date]:
@@ -209,6 +213,8 @@ class SyncEngine:
     def _plan_days(self, start: date, end: date, today: date) -> list[tuple[str, str, int, int]]:
         out = []
         for ds in DAY_DATASETS:
+            if not self.client.supports(ds.path):
+                continue
             for d in self._missing_days(ds.name, start, end):
                 out.append((f"day:{ds.name}", d.isoformat(), ds.priority + self._age_bump(d, today), int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp())))
         return out
@@ -216,6 +222,8 @@ class SyncEngine:
     def _plan_ranges(self, start: date, today: date) -> list[tuple[str, str, int, int]]:
         out = []
         for ds in RANGE_DATASETS:
+            if not self.client.supports(ds.path):
+                continue
             if ds.whole:
                 # chunks are keyed start_end on a fixed grid from the history start
                 d = start
@@ -267,6 +275,8 @@ class SyncEngine:
     def _plan_activities(self, today: date) -> list[tuple[str, str, int, int]]:
         out = []
         for ds in ACTIVITY_DATASETS:
+            if not self.client.supports(ds.path):
+                continue
             rows = self.db.all(
                 """SELECT a.activity_id::VARCHAR AS id, epoch(a.start_time_gmt)::BIGINT AS sk, a.start_time_local::DATE AS d, a.activity_type AS t
                    FROM activity a
@@ -281,7 +291,7 @@ class SyncEngine:
                     continue
                 d = r["d"] or today
                 out.append((f"act:{ds.name}", r["id"], ds.priority + self._age_bump(d, today), int(r["sk"] or 0)))
-        rows = self.db.all(
+        rows = [] if not self.client.supports(ACTIVITY_FIT_PATH) else self.db.all(
             """SELECT a.activity_id::VARCHAR AS id, epoch(a.start_time_gmt)::BIGINT AS sk, a.start_time_local::DATE AS d
                FROM activity a WHERE a.deleted_at IS NULL AND NOT coalesce(a.is_manual_activity, false)
                  AND NOT EXISTS (SELECT 1 FROM raw_latest r WHERE r.object_type = 'activity_fit' AND r.object_key = a.activity_id::VARCHAR)"""
@@ -296,6 +306,8 @@ class SyncEngine:
         return [(f"reparse:{r['kind']}", r["key"], 40, 0) for r in rows]
 
     def _plan_snapshots(self, today: date) -> list[tuple[str, str, int, int]]:
+        if self.client.partial:
+            return []  # the Personal API serves no snapshot datasets (the profile is fetched once by schedule)
         out = []
         now = datetime.now(UTC)
         for ds in SNAPSHOT_DATASETS:
@@ -386,8 +398,12 @@ class SyncEngine:
         have_profile = int(self.db.scalar("SELECT count(*) FROM user_profile") or 0)
         if not have_profile:
             for name in ("userprofile_settings", "user_profile_base", "personal_information", "user_settings"):
+                if not self.client.supports(dataset(name).path):
+                    continue
+                if self.client.partial and self.db.one("SELECT 1 AS x FROM raw_latest WHERE object_type = ? AND object_key = 'self'", [name]):
+                    continue  # fetched once; the profile table never fills under a partial transport
                 self.enqueue(f"snap:{name}", "self", 10)
-        if due("poll", timedelta(minutes=15)):
+        if self.client.supports(dataset("device_last_used").path) and due("poll", timedelta(minutes=15)):
             self.enqueue("poll", "self", 10)
         if due("list_recent", timedelta(minutes=15)):
             self.enqueue("list_recent", "self", 10)
@@ -447,8 +463,11 @@ class SyncEngine:
             for i in range(RECENT_WINDOW_DAYS):
                 d = (today - timedelta(days=i)).isoformat()
                 for ds in DAY_DATASETS:
-                    changed |= f.day(ds, d, priority=cls).changed
+                    if self.client.supports(ds.path):
+                        changed |= f.day(ds, d, priority=cls).changed
             for ds in RANGE_DATASETS:
+                if not self.client.supports(ds.path):
+                    continue
                 s = (today - timedelta(days=RECENT_WINDOW_DAYS - 1)).isoformat()
                 changed |= bool(f.range(ds, s, today.isoformat(), priority=cls))
             self.mark_ran("window")
@@ -534,6 +553,9 @@ class SyncEngine:
         except AuthError as err:
             self.log(kind, key, "auth_error", str(err)[:500])
             return "waiting"
+        except Unsupported as err:
+            self.db.run("DELETE FROM sync_job WHERE kind = ? AND key = ?", [kind, key])
+            self.log(kind, key, "unsupported", str(err)[:500])
         except Exception as err:  # noqa: BLE001
             attempts = int(job["attempts"]) + 1
             backoff_min = min(2**attempts, 24 * 60)
