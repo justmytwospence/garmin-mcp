@@ -443,7 +443,7 @@ wheels = [
 
 [[package]]
 name = "garmin-mirror-mcp"
-version = "1.7.0"
+version = "1.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "duckdb" },
@@ -451,6 +451,7 @@ dependencies = [
     { name = "garminconnect" },
     { name = "mcp" },
     { name = "pytz" },
+    { name = "requests" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -472,6 +473,7 @@ requires-dist = [
     { name = "garminconnect", specifier = ">=0.3.18" },
     { name = "mcp", specifier = ">=2,<3" },
     { name = "pytz", specifier = ">=2026.5" },
+    { name = "requests", specifier = ">=2.31,<3" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]

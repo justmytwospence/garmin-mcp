@@ -1,6 +1,6 @@
 [project]
 name = "garmin-mirror-mcp"
-version = "1.7.0"
+version = "1.8.0"
 description = "Garmin Connect MCP server backed by a complete local DuckDB mirror"
 readme = "README.md"
 license = "PolyForm-Noncommercial-1.0.0"
@@ -28,6 +28,7 @@ dependencies = [
     "starlette",
     "uvicorn",
     "pytz>=2026.5",
+    "requests>=2.31,<3",
 ]
 
 [project.urls]
