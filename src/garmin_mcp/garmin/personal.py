@@ -87,7 +87,7 @@ class PersonalApiTransport:
     def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None, files: Any = None) -> Response:
         if method.upper() != "GET":
             raise Unsupported(f"{method} {path} is not available with the Personal API transport")
-        accept = "application/zip, application/octet-stream" if binary else "application/json"
+        accept = "application/zip, application/x-zip-compressed, application/octet-stream" if binary else "application/json"
         for attempt in (0, 1):
             h = {**(headers or {}), "Authorization": f"Bearer {self.token.get(force=attempt == 1)}", "Accept": accept}
             r = self.session.get(self.token.base + path, params=params, headers=h, timeout=60)

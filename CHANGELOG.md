@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-11-05
+
+### Fixed
+
+- The Personal API transport asked for activity files with an Accept header Garmin answers with HTTP 406; it now sends the one Garmin's own client sends.
+
 ## [1.8.0] - 2026-11-05
 
 ### Added
@@ -146,6 +152,7 @@ The first release meant for other people: a self-hosted compose stack with docum
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
 [Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.7.0...HEAD
+[1.8.1]: https://github.com/justmytwospence/garmin-mcp/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.5.1...v1.6.0
