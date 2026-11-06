@@ -22,6 +22,8 @@ Everything is an environment variable. In Docker, set them in `.env`: `compose.y
 | `GARMIN_EXPORT_DIR` | `<data dir>/export` | Where the canonical export is written |
 | `EXPORT_TOKEN` | unset | Bearer token for `/export/canonical/v1/`; the route is disabled without it |
 | `EXPORT_CORS_ORIGINS` | unset | Comma-separated origins (for example `https://effortcurve.com`) a browser app may read the export from; CORS headers go on `/export/canonical/v1/` only |
+| `EXPORT_OIDC_ISSUER` | unset | An `https://` OIDC issuer (Authelia, Authentik, Keycloak ...): browser apps sign in there and the export accepts its JWTs issued to `EXPORT_OIDC_CLIENT_ID`. Unset: the server runs its own one-page sign-in (approve with `EXPORT_TOKEN`) |
+| `EXPORT_OIDC_CLIENT_ID` | `effortcurve` | The OIDC client the browser app uses |
 | `GARMIN_TRANSPORT` | `connect` | `personal` uses Garmin's official Personal API instead of the email/password login; see [authentication](authentication.md#personal-api-key) |
 | `GARMIN_PERSONAL_API_KEY`, `GARMIN_PERSONAL_API_KEY_FILE` | unset | The Personal API key (or a file holding it); required with `GARMIN_TRANSPORT=personal` |
 | `GARMIN_PERSONAL_API_BASE_URL` | `https://personal.connectapi.garmin.com` | Override for tests |

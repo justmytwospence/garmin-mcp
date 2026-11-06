@@ -86,6 +86,9 @@ def validate_settings(env: dict[str, str]) -> None:
     export = (env.get("GARMIN_EXPORT") or "").strip().lower()
     if export not in ("", "off", "canonical"):
         raise ValueError(f'GARMIN_EXPORT must be "off" or "canonical", got "{export}"')
+    issuer = (env.get("EXPORT_OIDC_ISSUER") or "").strip()
+    if issuer and not issuer.startswith("https://"):
+        raise ValueError(f"EXPORT_OIDC_ISSUER must start with https://, got {issuer!r}")
     gt = (env.get("GARMIN_TRANSPORT") or "connect").strip().lower()
     if gt not in ("connect", "personal"):
         raise ValueError(f'GARMIN_TRANSPORT must be "connect" or "personal", got "{gt}"')
@@ -168,6 +171,7 @@ def serve(args: argparse.Namespace) -> int:
         else:
             import uvicorn
 
+            from .export_auth import ExportAuth
             from .http import build_app
 
             port = env_int("PORT", 8000, env, minimum=1)
@@ -185,6 +189,12 @@ def serve(args: argparse.Namespace) -> int:
                 snapshot_token=env.get("SNAPSHOT_TOKEN") or "",
                 exporter=rt.exporter,
                 export_token=env.get("EXPORT_TOKEN") or "",
+                export_auth=ExportAuth(
+                    env.get("EXPORT_TOKEN") or "",
+                    [o.strip() for o in (env.get("EXPORT_CORS_ORIGINS") or "").split(",") if o.strip()],
+                    oidc_issuer=env.get("EXPORT_OIDC_ISSUER") or "",
+                    oidc_client_id=env.get("EXPORT_OIDC_CLIENT_ID") or "effortcurve",
+                ),
                 export_cors_origins=[o.strip() for o in (env.get("EXPORT_CORS_ORIGINS") or "").split(",") if o.strip()],
                 stateless=env_bool("MCP_STATELESS_HTTP", False, env),
             )

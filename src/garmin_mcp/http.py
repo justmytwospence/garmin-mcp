@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .export import CanonicalExporter
+from .export_auth import ExportAuth
 from .snapshot import SnapshotPublisher
 
 MCP_PATHS = ("/mcp", "/")
@@ -65,6 +66,7 @@ def build_app(
     exporter: CanonicalExporter | None = None,
     export_token: str = "",
     export_cors_origins: list[str] | None = None,
+    export_auth: ExportAuth | None = None,
 ) -> ASGIApp:
     inner = server.streamable_http_app(streamable_http_path="/mcp", host="0.0.0.0", transport_security=transport_security(allowed_hosts or []), stateless_http=stateless)
     health_body = health or {"status": "ok"}
@@ -96,8 +98,8 @@ def build_app(
             if origin in cors_origins:
                 headers = {
                     "access-control-allow-origin": origin,
-                    "access-control-allow-methods": "GET, HEAD, OPTIONS",
-                    "access-control-allow-headers": "Authorization",
+                    "access-control-allow-methods": "GET, HEAD, POST, OPTIONS",
+                    "access-control-allow-headers": "Authorization, Content-Type",
                     "access-control-max-age": "86400",
                     "vary": "Origin",
                 }
@@ -105,7 +107,7 @@ def build_app(
                     headers["access-control-allow-private-network"] = "true"
             await Response(status_code=204, headers=headers)(scope, receive, send)
             return
-        if path.startswith("/export/canonical/v1/") and method in ("GET", "HEAD"):
+        if path.startswith("/export/canonical/v1/") and method in ("GET", "HEAD", "POST"):
             request = Request(scope, receive)
             origin = request.headers.get("origin") or ""
             if origin in cors_origins:
@@ -113,10 +115,32 @@ def build_app(
             if not export_token or exporter is None:
                 await Response("Export serving is disabled (set GARMIN_EXPORT=canonical and EXPORT_TOKEN)", status_code=404, media_type="text/plain")(scope, receive, send)
                 return
-            if not bearer_matches(export_token, request.headers.get("authorization")):
+            auth = export_auth or ExportAuth(export_token, list(cors_origins))
+            rel = path.removeprefix("/export/canonical/v1/")
+            proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+            host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+            base = f"{proto}://{host}/export/canonical/v1"
+            if rel == "auth" and method == "GET":
+                try:
+                    meta = auth.metadata(base)
+                except Exception:  # noqa: BLE001
+                    await Response("The identity provider could not be reached", status_code=502, media_type="text/plain")(scope, receive, send)
+                    return
+                await JSONResponse(meta, headers={"Cache-Control": "no-store"})(scope, receive, send)
+                return
+            if rel == "oauth/authorize" and method in ("GET", "POST"):
+                await (await auth.authorize(request))(scope, receive, send)
+                return
+            if rel == "oauth/token" and method == "POST":
+                await (await auth.token(request))(scope, receive, send)
+                return
+            if method == "POST":
+                await Response("Not found", status_code=404, media_type="text/plain")(scope, receive, send)
+                return
+            if not auth.allows(request.headers.get("authorization")):
                 await Response("Unauthorized", status_code=401, media_type="text/plain")(scope, receive, send)
                 return
-            await exporter.serve(path.removeprefix("/export/canonical/v1/"), request)(scope, receive, send)
+            await exporter.serve(rel, request)(scope, receive, send)
             return
         if path in MCP_PATHS:
             if mcp_token:

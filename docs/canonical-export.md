@@ -26,3 +26,12 @@ A browser app on another origin needs CORS: set `EXPORT_CORS_ORIGINS` to its ori
 `manifest.json` has `schema_version` (1), `importer`, `generated_at` and `activities`, one entry per activity: `id` (`garmin:<id>`), `sources`, `start_time` (UTC, the first record), `utc_offset_min`, `sport` (canonical), `source_sport` (Garmin's type), `name`, `device`, `indoor`, `manual`, `cadence_unit`, `hr_sensor` (a heart-rate strap or armband was connected), `n` (rows), `sha256` and `fingerprint` of the file, `updated_at` and `file`.
 
 Each Parquet file (snappy) has one row per recorded second: `t` (INTEGER seconds from the first record), `lat`, `lng` (INTEGER degrees x 1e7), `alt` and `dist` (DOUBLE metres), `hr`, `power`, `cadence` (FLOAT; cadence as the FIT file counts it, one foot's cycles on foot). Missing values are nulls. When a second has several records, the one with the greatest distance is kept, and among equal distances the earliest record.
+
+## Signing in from a browser app
+
+Effort Curve connects with an OAuth 2.1 authorization-code flow (PKCE), so the user never pastes a token into the app. `GET /export/canonical/v1/auth` (no authentication, CORS) describes the sign-in: `{mode, issuer, authorization_endpoint, token_endpoint, client_id, scope}`.
+
+- **Built-in** (default): `/export/canonical/v1/oauth/authorize` shows a one-page approval where the user enters `EXPORT_TOKEN` once; `/export/canonical/v1/oauth/token` issues signed access (1 h) and refresh (90 days, rotated) tokens. The redirect must be `<origin>/oauth/callback` with the origin in `EXPORT_CORS_ORIGINS`. Changing `EXPORT_TOKEN` revokes every token.
+- **OIDC**: set `EXPORT_OIDC_ISSUER` (and optionally `EXPORT_OIDC_CLIENT_ID`, default `effortcurve`). The app signs in at your provider and the export accepts its JWTs whose `client_id` or `azp` is that client. Register a public PKCE client with the redirect `https://effortcurve.com/oauth/callback`, scopes `openid offline_access`, grants `authorization_code` and `refresh_token`, and allow the app's origin in the provider's CORS settings for the token endpoint (Authelia: `identity_providers.oidc.cors.endpoints: [token, revocation, userinfo]` and `allowed_origins`).
+
+`Bearer EXPORT_TOKEN` keeps working for proxies and scripts.
