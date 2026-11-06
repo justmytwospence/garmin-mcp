@@ -113,7 +113,8 @@ def test_code_flow_access_refresh_and_legacy_token(tmp_path):
         assert ok.status_code == 200
         t = ok.json()
         assert (await c.get("/export/canonical/v1/manifest.json", headers={"authorization": "Bearer " + t["access_token"]})).status_code == 200
-        flipped = t["access_token"][:-1] + ("A" if t["access_token"][-1] != "A" else "B")
+        head, sig = t["access_token"].rsplit(".", 1)
+        flipped = head + "." + ("A" if sig[0] != "A" else "B") + sig[1:]  # the first char carries 6 significant bits; the last only 4
         assert (await c.get("/export/canonical/v1/manifest.json", headers={"authorization": "Bearer " + flipped})).status_code == 401
         assert (await c.get("/export/canonical/v1/manifest.json", headers={"authorization": "Bearer " + t["refresh_token"]})).status_code == 401
         assert (await c.get("/export/canonical/v1/manifest.json", headers={"authorization": "Bearer tok"})).status_code == 200
