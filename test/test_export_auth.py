@@ -59,7 +59,8 @@ def test_metadata_and_cors(tmp_path):
 def test_authorize_page_and_bad_redirects(tmp_path):
     async def fn(c):
         r = await c.get("/export/canonical/v1/oauth/authorize", params=q())
-        assert r.status_code == 200 and "default-src 'none'" in r.headers["content-security-policy"] and 'type="password"' in r.text
+        assert r.status_code == 200 and "default-src 'none'" in r.headers["content-security-policy"]
+        assert f"form-action 'self' {ORIGIN}" in r.headers["content-security-policy"] and 'type="password"' in r.text
         for bad in ("https://evil.example/oauth/callback", ORIGIN + "/other", ORIGIN + "/oauth/callback?x=1"):
             r = await c.get("/export/canonical/v1/oauth/authorize", params={**q(), "redirect_uri": bad})
             assert r.status_code == 400
@@ -71,6 +72,7 @@ def test_wrong_token_and_deny(tmp_path):
     async def fn(c):
         r = await c.post("/export/canonical/v1/oauth/authorize", data={**q(), "token": "nope", "action": "approve"})
         assert r.status_code == 401 and "code=" not in r.text
+        assert f"form-action 'self' {ORIGIN}" in r.headers["content-security-policy"]
         r = await c.post("/export/canonical/v1/oauth/authorize", data={**q(), "action": "deny"})
         assert r.status_code == 303 and "error=access_denied" in r.headers["location"]
 

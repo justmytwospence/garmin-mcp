@@ -141,7 +141,7 @@ class ExportAuth:
 <h1>Effort Curve</h1><p><strong>{html.escape(scheme + '://' + origin)}</strong> wants to read your activities from this server.</p>{err}
 <form method="post">{hidden}<label>Export token<input type="password" name="token" autocomplete="off" autofocus></label>
 <button name="action" value="approve">Approve</button><button name="action" value="deny">Deny</button></form>"""
-        return HTMLResponse(body, status_code=status, headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"})
+        return HTMLResponse(body, status_code=status, headers={"Content-Security-Policy": f"default-src 'none'; style-src 'unsafe-inline'; form-action 'self' {scheme}://{origin}", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"})
 
     @staticmethod
     def _bad(msg: str) -> Response:
