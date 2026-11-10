@@ -54,6 +54,7 @@ def test_export_writes_manifest_and_parquet(setup):
     [e] = m["activities"]
     assert e["id"] == f"garmin:{aid}" and e["sources"] == [{"kind": "garmin", "id": str(aid)}] and e["n"] == 30
     assert e["hr_sensor"] is False  # fitgen writes no device info
+    assert e["tags"] == []
     f = exp.out_dir / e["file"]
     assert e["sha256"] == hashlib.sha256(f.read_bytes()).hexdigest()
     con = duckdb.connect()
@@ -62,6 +63,15 @@ def test_export_writes_manifest_and_parquet(setup):
     rows = con.execute(f"SELECT t, lat FROM '{f}' ORDER BY t").fetchall()
     assert [r[0] for r in rows] == list(range(30)) and len(rows) == e["n"]
     assert abs(rows[1][1] - 45e7) < 1e6
+
+
+def test_race_event_type_is_tagged(setup):
+    db, summary, _, pub, exp = setup
+    body = {**summary["body"], "eventType": {"typeId": 1, "typeKey": "race", "sortOrder": 5}}
+    with db.transaction() as tx:
+        land(tx, summary["type"], summary["key"], json.dumps(body))
+    exp.run(pub.publish())
+    assert manifest(exp)["activities"][0]["tags"] == ["race"]
 
 
 def test_unchanged_export_rewrites_nothing(setup):

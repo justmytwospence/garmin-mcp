@@ -127,7 +127,7 @@ class CanonicalExporter:
                     GROUP BY 1
                 )
                 SELECT s.activity_id, s.n, s.records || '|' || s.files AS fingerprint, s.start, a.activity_type, a.activity_name, a.manufacturer,
-                       a.manual_activity, coalesce(h.hr_sensor, false) AS hr_sensor,
+                       a.manual_activity, coalesce(h.hr_sensor, false) AS hr_sensor, a.event_type,
                        coalesce(round((epoch(a.start_time_local::TIMESTAMP) - epoch(a.start_time_gmt)) / 60)::INTEGER, 0)
                            AS utc_offset_min
                 FROM s JOIN g.activity a USING (activity_id)
@@ -189,7 +189,7 @@ class CanonicalExporter:
 
         now = _iso(datetime.now(UTC))
         entries = []
-        for aid, n, fingerprint, start, atype, name, manufacturer, manual, hr_sensor, offset in acts:
+        for aid, n, fingerprint, start, atype, name, manufacturer, manual, hr_sensor, event_type, offset in acts:
             aid = int(aid)
             key = f"garmin:{aid}"
             old = previous.get(key, {})
@@ -207,6 +207,7 @@ class CanonicalExporter:
                 "manual": bool(manual),
                 "cadence_unit": cadence_unit(sport),
                 "hr_sensor": bool(hr_sensor),
+                "tags": ["race"] if event_type == "race" else [],
                 "n": int(n),
                 "sha256": hashes.get(aid, old.get("sha256")),
                 "fingerprint": fingerprint,
