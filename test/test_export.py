@@ -21,6 +21,7 @@ from garmin_mcp.mirror import Mirror
 from garmin_mcp.server import create_server
 from garmin_mcp.snapshot import SnapshotPublisher
 from garmin_mcp.sync.engine import SyncEngine
+from test_weather import SyntheticMeteo
 
 from fake import FakeTransport
 from fitgen import activity_fit
@@ -132,3 +133,79 @@ def test_export_route_requires_token(setup, tmp_path):
             assert (await c.get("/export/canonical/v1/manifest.json", headers={"authorization": "Bearer t"})).status_code == 404
 
     asyncio.run(go())
+
+
+def weather_exporter(exp, session):
+    return CanonicalExporter(exp.out_dir, importer="garmin-mcp@test", weather=True, weather_session=session)
+
+
+def test_export_carries_modelled_weather(setup):
+    _, _, _, pub, exp = setup
+    session = SyntheticMeteo()
+    wexp = weather_exporter(exp, session)
+    wexp.run(pub.publish())
+    [e] = manifest(wexp)["activities"]
+    w = e["weather"]
+    assert w["version"] == 1 and w["source"] == "open-meteo" and w["api"] == "historical-forecast"
+    assert w["t"][0] == 0 and w["temp"][0] == 15.0 and len(w["t"]) == len(w["elev"]) == len(w["dew"]) == len(w["wind"]) == len(w["wind_dir"]) >= 2
+    assert session.calls >= 1 and "latitude=45.0000" in session.urls[0]
+    # the cache is a sidecar file, never in the served export
+    assert (wexp.out_dir.parent / "weather-v1.json").exists() and not list(wexp.out_dir.rglob("weather*"))
+    assert list(manifest(wexp)["activities"][0].keys()) == SCHEMA["entry_keys"]
+
+
+def test_export_weather_off_is_null(setup):
+    _, _, _, pub, exp = setup
+    exp.run(pub.publish())
+    assert manifest(exp)["activities"][0]["weather"] is None
+    assert not (exp.out_dir.parent / "weather-v1.json").exists()
+
+
+def test_weather_is_not_asked_for_again(setup):
+    _, _, _, pub, exp = setup
+    session = SyntheticMeteo()
+    wexp = weather_exporter(exp, session)
+    snap = pub.publish()
+    wexp.run(snap)
+    asked = session.calls
+    first = manifest(wexp)["activities"][0]
+    wexp.run(snap)
+    assert session.calls == asked and manifest(wexp)["activities"][0]["weather"] == first["weather"]
+    # a new exporter (a restart) reads the same cache
+    weather_exporter(exp, session).run(snap)
+    assert session.calls == asked
+
+
+def test_changed_recording_gets_new_weather(setup):
+    db, _, aid, pub, exp = setup
+    session = SyntheticMeteo()
+    wexp = weather_exporter(exp, session)
+    wexp.run(pub.publish())
+    asked = session.calls
+    with db.transaction() as tx:
+        land_fit(tx, "activity_fit", str(aid), activity_fit(START, seconds=40))
+    wexp.run(pub.publish())
+    assert session.calls > asked and manifest(wexp)["activities"][0]["weather"] is not None
+
+
+def test_a_daily_limit_does_not_fail_the_export(setup):
+    _, _, _, pub, exp = setup
+    session = SyntheticMeteo(429, "Daily API request limit exceeded")
+    wexp = weather_exporter(exp, session)
+    snap = pub.publish()
+    wexp.run(snap)
+    assert manifest(wexp)["activities"][0]["weather"] is None and session.calls == 1
+    wexp.run(snap)
+    assert session.calls == 1  # paused until the next UTC day
+
+
+def test_a_weather_failure_does_not_fail_the_export(setup, monkeypatch):
+    _, _, _, pub, exp = setup
+
+    class Boom:
+        def get(self, url, timeout=0):
+            raise ConnectionError("no network")
+
+    wexp = weather_exporter(exp, Boom())
+    wexp.run(pub.publish())
+    assert manifest(wexp)["activities"][0]["weather"] is None

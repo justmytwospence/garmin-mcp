@@ -79,6 +79,7 @@ def validate_settings(env: dict[str, str]) -> None:
     ToolFilter.from_env(env)
     StravaSyncConfig.from_env(env)
     env_bool("GARMIN_SYNC", True, env)
+    env_bool("GARMIN_EXPORT_WEATHER", True, env)
     env_bool("MCP_STATELESS_HTTP", False, env)
     is_cn(env)
     env_int("DUCKDB_THREADS", 0, env, minimum=1)
@@ -123,7 +124,11 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
     client = GarminClient(PendingTransport(), on_sample=record)
     exporter = None
     if (env.get("GARMIN_EXPORT") or "").strip().lower() == "canonical":
-        exporter = CanonicalExporter(Path(env.get("GARMIN_EXPORT_DIR") or Path(data_dir) / "export") / "canonical-v1", importer=f"garmin-mcp@{VERSION}")
+        exporter = CanonicalExporter(
+            Path(env.get("GARMIN_EXPORT_DIR") or Path(data_dir) / "export") / "canonical-v1",
+            importer=f"garmin-mcp@{VERSION}",
+            weather=env_bool("GARMIN_EXPORT_WEATHER", True, env),
+        )
     snapshot = SnapshotPublisher(
         db,
         on_publish=exporter.run if exporter else None,

@@ -19,6 +19,7 @@ Everything is an environment variable. In Docker, set them in `.env`: `compose.y
 | `GARMIN_DB_PATH` | the user data directory: `~/.local/share/garmin-mcp/garmin.duckdb` (Linux, or `$XDG_DATA_HOME`), `~/Library/Application Support/garmin-mcp/garmin.duckdb` (macOS), `%LOCALAPPDATA%\garmin-mcp\garmin.duckdb` (Windows); `/data/garmin.duckdb` in the image | The mirror. FIT files go to `fit/` next to it, DuckDB's spill files to `duckdb-tmp/`. One process at a time |
 | `GARMIN_SNAPSHOT_INTERVAL_HOURS` | `6` | How long routine changes (wellness days, refetches) wait before the snapshot is republished. Each publish copies the whole mirror, gigabytes after a few years of FIT data |
 | `GARMIN_EXPORT` | `off` | `canonical` writes the [canonical export](canonical-export.md) after each snapshot publish |
+| `GARMIN_EXPORT_WEATHER` | `on` | With the canonical export: ask [Open-Meteo](https://open-meteo.com) for the weather along each outdoor activity's track (one point every 10 minutes: positions, altitudes and times are sent) and write it as `weather`; `off` writes `null` |
 | `GARMIN_EXPORT_DIR` | `<data dir>/export` | Where the canonical export is written |
 | `EXPORT_TOKEN` | unset | Bearer token for `/export/canonical/v1/`; the route is disabled without it |
 | `EXPORT_CORS_ORIGINS` | unset | Comma-separated origins (for example `https://effortcurve.com`) a browser app may read the export from; CORS headers go on `/export/canonical/v1/` only |

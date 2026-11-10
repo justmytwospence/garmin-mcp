@@ -6,6 +6,9 @@ Layout of the export directory (GARMIN_EXPORT_DIR, default <data dir>/export, pl
     manifest.json                     schema_version, importer, generated_at and one entry per activity
     activities/garmin-<id>.parquet    one row per recorded second: t, lat, lng, alt, dist, hr, power, cadence
 
+and, beside the export directory (never served), weather-v1.json: the modelled weather found for each activity
+(see weather.py), which the manifest entries carry as `weather`.
+
 Turned on with GARMIN_EXPORT=canonical; served with bearer EXPORT_TOKEN. The exporter reads the snapshot over
 its own read-only DuckDB connection, never the live mirror, and rewrites only activities whose FIT data changed
 (a fingerprint of the record count and FIT file ids; `n` is the file's row count, one per second), so a routine publish writes almost nothing.
@@ -30,6 +33,8 @@ from typing import Any
 import duckdb
 from starlette.requests import Request
 from starlette.responses import FileResponse, Response
+
+from .weather import WeatherCache, fill_weather
 
 log = logging.getLogger("garmin_mcp.export")
 
@@ -92,11 +97,48 @@ def _iso(ts: datetime) -> str:
 class CanonicalExporter:
     """Writes the canonical export from a snapshot file. `run` is idempotent and cheap when nothing changed."""
 
-    def __init__(self, out_dir: Path, *, memory_limit: str = "256MB", batch: int = 200, importer: str) -> None:
+    def __init__(
+        self, out_dir: Path, *, memory_limit: str = "256MB", batch: int = 200, importer: str, weather: bool = False, weather_session: Any = None,
+    ) -> None:
         self.out_dir = Path(out_dir)
         self.memory_limit = memory_limit
         self.batch = batch
         self.importer = importer
+        self.weather = weather
+        self.weather_session = weather_session
+
+    def _weather(self, acts: list[tuple[Any, ...]], activities_dir: Path) -> dict[int, dict[str, Any] | None]:
+        """Fill in the modelled weather of the activities that lack it (bounded, and never a reason to fail the export);
+        each activity's weather as cached for its current fingerprint."""
+        cache = WeatherCache(self.out_dir.parent / "weather-v1.json")
+        try:
+            session = self.weather_session
+            if session is None:
+                import requests
+
+                session = requests.Session()
+                session.headers["User-Agent"] = f"{self.importer} (+https://github.com/justmytwospence/garmin-mcp)"
+            cands = [
+                {"id": f"garmin:{int(a[0])}", "fingerprint": a[2], "start_time": _iso(a[3]), "indoor": (a[4] or "") in INDOOR_TYPES, "manual": bool(a[7])}
+                for a in acts
+            ]
+            cache.forget({c["id"] for c in cands})
+            con = duckdb.connect()
+            try:
+
+                def read(aid: str) -> tuple[list[int], list[int | None], list[int | None], list[float | None]]:
+                    path = activities_dir / f"{aid.replace(':', '-')}.parquet"
+                    rows = con.execute("SELECT t, lat, lng, alt FROM read_parquet(?) ORDER BY t", [str(path)]).fetchall()
+                    return [r[0] for r in rows], [r[1] for r in rows], [r[2] for r in rows], [r[3] for r in rows]
+
+                stats = fill_weather(cache, cands, read, session)
+            finally:
+                con.close()
+            if any(stats.values()):
+                log.info("export weather: %s", stats)
+        except Exception:  # noqa: BLE001
+            log.exception("export weather failed")
+        return {int(a[0]): cache.weather(f"garmin:{int(a[0])}", a[2]) for a in acts}
 
     @property
     def manifest_path(self) -> Path:
@@ -187,6 +229,7 @@ class CanonicalExporter:
             con.close()
             shutil.rmtree(stage, ignore_errors=True)
 
+        weathers = self._weather(acts, activities_dir) if self.weather else {}
         now = _iso(datetime.now(UTC))
         entries = []
         for aid, n, fingerprint, start, atype, name, manufacturer, manual, hr_sensor, event_type, offset in acts:
@@ -208,6 +251,7 @@ class CanonicalExporter:
                 "cadence_unit": cadence_unit(sport),
                 "hr_sensor": bool(hr_sensor),
                 "tags": ["race"] if event_type == "race" else [],
+                "weather": weathers.get(aid),
                 "n": int(n),
                 "sha256": hashes.get(aid, old.get("sha256")),
                 "fingerprint": fingerprint,
