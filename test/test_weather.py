@@ -11,8 +11,6 @@ import pytest
 
 from garmin_mcp.weather import (
     BASES,
-    PER_DAY,
-    PER_MINUTE,
     Limiter,
     RateLimited,
     WeatherCache,
@@ -31,9 +29,10 @@ FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "weather-v1-fixture.j
 
 
 class Res:
-    def __init__(self, status: int, body: Any) -> None:
+    def __init__(self, status: int, body: Any, headers: dict[str, str] | None = None) -> None:
         self.status_code = status
         self._body = body
+        self.headers = {k.lower(): v for k, v in (headers or {}).items()}
 
     def json(self) -> Any:
         return self._body
@@ -82,7 +81,7 @@ class SyntheticMeteo:
 
 
 def limiter() -> Limiter:
-    return Limiter({"day": "", "used": 0}, clock=lambda: 1_800_000_000.0, sleep=lambda s: None)
+    return Limiter(clock=lambda: 1_800_000_000.0, sleep=lambda s: None)
 
 
 @pytest.mark.parametrize("case", FIXTURE["cases"], ids=lambda c: c["name"])
@@ -184,12 +183,18 @@ def test_a_limited_minute_is_waited_out_once():
 
         def get(self, url, timeout=0):
             self.calls += 1
-            return Res(200, {"error": True, "reason": "Minutely API request limit exceeded"})
+            return Res(429, {"error": True, "reason": "Minutely API request limit exceeded"}, {"Retry-After": "42"})
 
     s = Limited()
+    t = [1_800_000_000.0]
+
+    def sleep(x):
+        sleeps.append(x)
+        t[0] += x
+
     with pytest.raises(RateLimited) as e:
-        fetch_weather(*args, session=s, limiter=limiter(), now=lambda: c["now"], sleep=sleeps.append)
-    assert e.value.scope == "minute" and s.calls == 2 and sleeps == [60]
+        fetch_weather(*args, session=s, limiter=Limiter(clock=lambda: t[0], sleep=sleep), now=lambda: c["now"])
+    assert e.value.scope == "minute" and s.calls == 2 and sleeps == [pytest.approx(43.001)]
     ok = c["exchanges"][0]["body"]
 
     class Recovers:
@@ -197,12 +202,31 @@ def test_a_limited_minute_is_waited_out_once():
 
         def get(self, url, timeout=0):
             self.calls += 1
-            return Res(429, {"error": True, "reason": "Minutely API request limit exceeded"}) if self.calls == 1 else Res(200, ok)
+            return Res(429, {"error": True, "reason": "Minutely API request limit exceeded"}, {"Retry-After": "5"}) if self.calls == 1 else Res(200, ok)
 
-    assert fetch_weather(*args, session=Recovers(), limiter=limiter(), now=lambda: c["now"], sleep=lambda s: None) == c["weather"]
+    assert fetch_weather(*args, session=Recovers(), limiter=Limiter(clock=lambda: t[0], sleep=sleep), now=lambda: c["now"]) == c["weather"]
 
 
-def test_a_daily_limit_stops_at_once_and_other_errors_are_errors():
+def test_without_headers_a_minute_is_waited_for_60_seconds():
+    c, args = one_case()
+    sleeps: list[float] = []
+
+    class Limited:
+        def get(self, url, timeout=0):
+            return Res(429, {"error": True, "reason": "Minutely API request limit exceeded"})
+
+    t = [1_800_000_000.0]
+
+    def sleep(x):
+        sleeps.append(x)
+        t[0] += x
+
+    with pytest.raises(RateLimited):
+        fetch_weather(*args, session=Limited(), limiter=Limiter(clock=lambda: t[0], sleep=sleep), now=lambda: c["now"])
+    assert sleeps == [pytest.approx(60.001)]
+
+
+def test_a_daily_limit_stops_at_once_until_retry_after_and_other_errors_are_errors():
     c, args = one_case()
 
     class Daily:
@@ -210,12 +234,12 @@ def test_a_daily_limit_stops_at_once_and_other_errors_are_errors():
 
         def get(self, url, timeout=0):
             self.calls += 1
-            return Res(429, {"error": True, "reason": "Daily API request limit exceeded"})
+            return Res(429, {"error": True, "reason": "Daily API request limit exceeded"}, {"Retry-After": "9000"})
 
     s = Daily()
     with pytest.raises(RateLimited) as e:
         fetch_weather(*args, session=s, limiter=limiter(), now=lambda: c["now"])
-    assert e.value.scope == "day" and s.calls == 1
+    assert e.value.scope == "day" and s.calls == 1 and e.value.until == 1_800_000_000.0 + 9001
 
     class Broken:
         def get(self, url, timeout=0):
@@ -225,28 +249,35 @@ def test_a_daily_limit_stops_at_once_and_other_errors_are_errors():
         fetch_weather(*args, session=Broken(), limiter=limiter(), now=lambda: c["now"])
 
 
-def test_limiter_waits_at_the_minute_cap_and_stops_at_the_day_cap():
-    t = [1_800_000_000.0]
+def test_limiter_follows_the_headers():
+    t0 = 1_800_000_000.0
+    t = [t0]
     slept: list[float] = []
 
     def sleep(s):
         slept.append(s)
         t[0] += s
 
-    lim = Limiter({"day": "", "used": 0}, clock=lambda: t[0], sleep=sleep)
-    for _ in range(PER_MINUTE // 50):
-        lim.take(50)
+    def h(limit, remaining, reset):
+        return Res(200, None, {"X-RateLimit-Limit": str(limit), "X-RateLimit-Remaining": str(remaining), "X-RateLimit-Reset": str(reset)})
+
+    lim = Limiter(clock=lambda: t[0], sleep=sleep)
+    lim.take(5)
+    lim.observe(h(600, 300, t0 + 30))
+    lim.take(5)
     assert slept == []
-    lim.take(50)
-    assert len(slept) == 1 and slept[0] >= 59
-    day = Limiter({"day": "2027-01-15", "used": PER_DAY - 10}, clock=lambda: 1_800_000_000.0)
-    assert datetime.fromtimestamp(1_800_000_000, UTC).strftime("%Y-%m-%d") == "2027-01-15"
+    lim.observe(h(600, 50, t0 + 30))
+    lim.take(5)
+    assert slept == [pytest.approx(31.001)]
+    lim.observe(h(10000, 900, t[0] + 5 * 3600))
     with pytest.raises(RateLimited) as e:
-        day.take(11)
-    assert e.value.scope == "day"
-    nxt = Limiter({"day": "2027-01-14", "used": PER_DAY}, clock=lambda: 1_800_000_000.0)
-    nxt.take(11)
-    assert nxt.state == {"day": "2027-01-15", "used": 11}
+        lim.take(5)
+    assert e.value.scope == "day" and lim.total == 15
+    free = Limiter(clock=lambda: t0)
+    free.observe(Res(200, None))
+    for _ in range(100):
+        free.take(50)
+    assert free.total == 5000
 
 
 def candidates(n: int):

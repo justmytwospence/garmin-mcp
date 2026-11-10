@@ -27,8 +27,8 @@ BASES = {
 }
 STEP_S = 600
 CHUNK = 50
-PER_MINUTE = 400
-PER_DAY = 8000
+HEADROOM = 0.1  # Open-Meteo reports how much of each window is left (X-RateLimit-*); pause when less than this share remains
+MAX_WAIT = 120.0  # a pause up to this long (seconds) is waited out in place; a longer one stops the run
 HOURLY = "temperature_2m,dew_point_2m,wind_speed_10m,wind_direction_10m"
 NONE_DAYS = 30
 
@@ -42,11 +42,12 @@ class WeatherFormatError(Exception):
 
 
 class RateLimited(Exception):
-    """Open-Meteo said slow down; `scope` is how long to stop for: a minute, until the next hour, until the next UTC day."""
+    """Open-Meteo said slow down (or is about to): `scope` is the window that ran out, `until` when to try again (epoch seconds)."""
 
-    def __init__(self, scope: str, message: str = "") -> None:
+    def __init__(self, scope: str, message: str = "", until: float | None = None) -> None:
         super().__init__(message or f"Open-Meteo rate limit ({scope})")
         self.scope = scope
+        self.until = until
 
 
 def limit_scope(reason: str) -> str:
@@ -178,37 +179,67 @@ def parse_weather(points: list[Point], start_ms: int, bodies: list[Any]) -> dict
     return out
 
 
-class Limiter:
-    """Keeps below PER_MINUTE calls in any rolling minute and PER_DAY in a UTC day; `state` is the day's count, kept by the caller."""
+def _num(res: Any, key: str) -> float | None:
+    try:
+        v = res.headers.get(key)
+        return None if v is None else float(v)
+    except (AttributeError, TypeError, ValueError):
+        return None
 
-    def __init__(self, state: dict[str, Any], clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep) -> None:
-        self.state = state
+
+def _scope_of(wait: float) -> str:
+    return "minute" if wait <= MAX_WAIT else "hour" if wait <= 3600 else "day"
+
+
+class Limiter:
+    """Learns Open-Meteo's limits from its responses and keeps the run inside them, whoever else shares the IP address:
+    the X-RateLimit-* headers say how much of the tightest window is left and when it resets."""
+
+    def __init__(self, clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep) -> None:
         self.clock = clock
         self.sleep = sleep
-        self.stamps: list[tuple[float, int]] = []
+        self.until = 0.0  # when the current pause ends (epoch seconds)
         self.total = 0  # calls taken through this limiter
 
+    def pause_left(self) -> float:
+        return max(0.0, self.until - self.clock())
+
     def take(self, n: int) -> None:
+        """Before a request of `n` locations: waits out a short pause, raises RateLimited for a long one."""
         while True:
-            t = self.clock()
-            day = _day(int(t * 1000))
-            if self.state.get("day") != day:
-                self.state["day"], self.state["used"] = day, 0
-            if self.state["used"] + n > PER_DAY:
-                raise RateLimited("day", "the day's weather requests are used up")
-            self.stamps = [s for s in self.stamps if s[0] > t - 60]
-            if sum(s[1] for s in self.stamps) + n <= PER_MINUTE:
-                self.stamps.append((t, n))
-                self.state["used"] += n
-                self.total += n
-                return
-            self.sleep(self.stamps[0][0] + 60 - t + 0.001)
+            wait = self.pause_left()
+            if wait <= 0:
+                break
+            if wait > MAX_WAIT:
+                raise RateLimited(_scope_of(wait), "Open-Meteo asked for a pause", self.until)
+            self.sleep(wait + 0.001)
+        self.total += n
+
+    def observe(self, res: Any) -> None:
+        remaining, limit, reset = _num(res, "x-ratelimit-remaining"), _num(res, "x-ratelimit-limit"), _num(res, "x-ratelimit-reset")
+        if remaining is not None and limit and reset is not None and remaining < limit * HEADROOM:
+            self.until = max(self.until, reset + 1)
+
+    def hit(self, res: Any, scope: str) -> None:
+        """Open-Meteo refused: pause for Retry-After, else for the scope's window."""
+        t = self.clock()
+        retry = _num(res, "retry-after")
+        if retry is not None:
+            until = t + retry + 1
+        elif scope == "day":
+            until = _next_day(datetime.fromtimestamp(t, UTC)).timestamp()
+        elif scope == "hour":
+            until = _next_hour(datetime.fromtimestamp(t, UTC)).timestamp()
+        else:
+            until = t + 60
+        self.until = max(self.until, until)
 
 
-def _get_json(session: Any, url: str, n: int, limiter: Limiter, sleep: Callable[[float], None]) -> Any:
+def _get_json(session: Any, url: str, n: int, limiter: Limiter) -> Any:
     for attempt in range(2):
         limiter.take(n)
         res = session.get(url, timeout=60)
+        limiter.observe(res)
         limited: RateLimited | None = None
         body: Any = None
         if res.status_code == 429:
@@ -229,20 +260,20 @@ def _get_json(session: Any, url: str, n: int, limiter: Limiter, sleep: Callable[
                     raise RuntimeError(reason or "Open-Meteo error")
         if limited is None:
             return body
-        if limited.scope != "minute" or attempt >= 1:
-            raise limited
-        sleep(60)
+        limiter.hit(res, limited.scope)
+        if attempt >= 1 or limiter.pause_left() > MAX_WAIT:
+            raise RateLimited(limited.scope, str(limited), limiter.until)
     raise AssertionError("unreachable")
 
 
-def _attempt(points: list[Point], start_ms: int, api: str, session: Any, limiter: Limiter, bases: dict[str, str] | None, sleep: Callable[[float], None]) -> dict[str, Any]:
-    bodies = [_get_json(session, url, n, limiter, sleep) for url, n in requests_for(points, start_ms, api, bases)]
+def _attempt(points: list[Point], start_ms: int, api: str, session: Any, limiter: Limiter, bases: dict[str, str] | None) -> dict[str, Any]:
+    bodies = [_get_json(session, url, n, limiter) for url, n in requests_for(points, start_ms, api, bases)]
     return parse_weather(points, start_ms, bodies)
 
 
 def fetch_weather(
     start_time: str, indoor: bool, manual: bool, t: Sequence[int], lat: Sequence[int | None], lng: Sequence[int | None], alt: Sequence[float | None] | None,
-    *, session: Any, limiter: Limiter, now: Callable[[], str], bases: dict[str, str] | None = None, sleep: Callable[[float], None] = time.sleep,
+    *, session: Any, limiter: Limiter, now: Callable[[], str], bases: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """Steps 1 to 8: the activity's weather, or None when it has none (indoor, no track, nothing from the model)."""
     points = plan_points(indoor, manual, t, lat, lng, alt)
@@ -250,9 +281,9 @@ def fetch_weather(
         return None
     start_ms = start_ms_of(start_time)
     api = "historical-forecast"
-    best = _attempt(points, start_ms, api, session, limiter, bases, sleep)
+    best = _attempt(points, start_ms, api, session, limiter, bases)
     if len(best["t"]) * 2 < len(points):
-        other = _attempt(points, start_ms, "archive", session, limiter, bases, sleep)
+        other = _attempt(points, start_ms, "archive", session, limiter, bases)
         if len(other["t"]) > len(best["t"]):
             best, api = other, "archive"
     if not best["t"]:
@@ -274,11 +305,11 @@ def _iso(t: datetime) -> str:
 
 class WeatherCache:
     """`weather-v1.json` beside the export: per activity the weather found for a given fingerprint (or None, with when it was
-    tried), the day's request count and a pause after Open-Meteo's limits. A sidecar file, never served."""
+    tried) and a pause after Open-Meteo's limits. A sidecar file, never served."""
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
-        self.data: dict[str, Any] = {"version": 1, "quota": {"day": "", "used": 0}, "retry_after": None, "entries": {}}
+        self.data: dict[str, Any] = {"version": 1, "retry_after": None, "entries": {}}
         try:
             d = json.loads(self.path.read_text())
             if isinstance(d, dict) and d.get("version") == 1:
@@ -329,7 +360,7 @@ def fill_weather(
     retry = cache.data.get("retry_after")
     if retry and now_dt() < datetime.fromisoformat(retry.replace("Z", "+00:00")):
         return stats
-    limiter = Limiter(cache.data["quota"], clock, sleep)
+    limiter = Limiter(clock, sleep)
     todo = [c for c in candidates if not c["indoor"] and not c["manual"] and not cache.done(c["id"], c["fingerprint"], now_dt())]
     todo.sort(key=lambda c: c["start_time"], reverse=True)
     began, since_save, failures = clock(), 0, 0
@@ -341,7 +372,7 @@ def fill_weather(
                 t, lat, lng, alt = read_samples(c["id"])
                 w = fetch_weather(
                     c["start_time"], c["indoor"], c["manual"], t, lat, lng, alt,
-                    session=session, limiter=limiter, now=lambda: _iso(now_dt()), bases=bases, sleep=sleep,
+                    session=session, limiter=limiter, now=lambda: _iso(now_dt()), bases=bases,
                 )
             except RateLimited:
                 raise
@@ -361,7 +392,7 @@ def fill_weather(
                 since_save = 0
     except RateLimited as e:
         t = now_dt()
-        until = _next_day(t) if e.scope == "day" else _next_hour(t) if e.scope == "hour" else t + timedelta(minutes=1)
+        until = datetime.fromtimestamp(e.until, UTC) if e.until else _next_day(t) if e.scope == "day" else _next_hour(t) if e.scope == "hour" else t + timedelta(minutes=1)
         cache.data["retry_after"] = _iso(until)
         log.warning("weather: Open-Meteo limit (%s), pausing until %s", e.scope, cache.data["retry_after"])
     else:

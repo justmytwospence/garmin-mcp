@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- The weather fill follows Open-Meteo's `X-RateLimit-*` headers instead of fixed caps of 400 calls a minute and 8,000 a day: it pauses when less than a tenth of the tightest window is left (until the window resets), honors `Retry-After` on a 429, and so adapts to other clients on the same IP address. The 2,000 calls per publish and the pause kept in `weather-v1.json` stay.
+
 ## [1.11.0] - 2026-11-10
 
 ### Added
