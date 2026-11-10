@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-11-10
+
 ### Changed
 
 - The weather fill follows Open-Meteo's `X-RateLimit-*` headers instead of fixed caps of 400 calls a minute and 8,000 a day: it pauses when less than a tenth of the tightest window is left (until the window resets), honors `Retry-After` on a 429, and so adapts to other clients on the same IP address. The 2,000 calls per publish and the pause kept in `weather-v1.json` stay.
@@ -185,7 +187,8 @@ The first release meant for other people: a self-hosted compose stack with docum
 
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
-[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/justmytwospence/garmin-mcp/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.9.2...v1.10.0
 [1.9.2]: https://github.com/justmytwospence/garmin-mcp/compare/v1.9.1...v1.9.2
