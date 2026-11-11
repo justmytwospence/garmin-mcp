@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -209,3 +209,77 @@ def test_a_weather_failure_does_not_fail_the_export(setup, monkeypatch):
     wexp = weather_exporter(exp, Boom())
     wexp.run(pub.publish())
     assert manifest(wexp)["activities"][0]["weather"] is None
+
+
+def lap(uuid, status="end", mfr="garmin", name="Test Climb", t0=5, t1=15, dist=1000.0, lat=450000000, lng=-450000000):
+    def iso(s):
+        return (START + timedelta(seconds=s)).isoformat().replace("+00:00", "Z")
+
+    return {
+        "uuid": uuid, "status": status, "manufacturer": mfr, "name": name, "start_time": iso(t0), "timestamp": iso(t1),
+        "total_distance": dist, "start_position_lat": lat, "start_position_long": lng,
+        "end_position_lat": lat + 1000000, "end_position_long": lng + 1000000,
+    }
+
+
+def add_laps(db, aid, laps):
+    with db.transaction() as tx:
+        fid = tx.execute("SELECT fit_file_id FROM fit_record WHERE activity_id = ? LIMIT 1", [aid]).fetchone()[0]
+        for i, fields in enumerate(laps):
+            tx.execute(
+                "INSERT INTO fit_message (activity_id, fit_file_id, mesg, idx, fields) VALUES (?, ?, 'segment_lap_mesgs', ?, ?)",
+                [aid, fid, 900 + i, json.dumps(fields)],
+            )
+
+
+def test_device_segment_efforts_and_segments_json(setup, tmp_path):
+    db, _, aid, pub, exp = setup
+    add_laps(db, aid, [
+        lap("seg-strava", mfr="strava", name="Neutral Hill", t0=20, t1=28, dist=500.0),
+        lap("seg-watch", name="Neutral Flat", t0=5, t1=15, dist=1000.0),
+        lap("seg-watch", name="Neutral Flat Renamed", t0=16, t1=19, dist=1200.0, lat=460000000),
+        lap("seg-fail", status="fail", t0=1, t1=2),
+        lap(None, t0=3, t1=4),
+        lap("seg-before", t0=-5, t1=3),
+    ])
+    exp.run(pub.publish())
+    [e] = manifest(exp)["activities"]
+    assert list(e.keys()) == SCHEMA["entry_keys"]
+    src = f"garmin:{aid}"
+    assert e["segment_efforts"] == [
+        {"segment": "garmin:seg-watch", "t0": 5, "t1": 15, "from": "device", "src": src},
+        {"segment": "garmin:seg-watch", "t0": 16, "t1": 19, "from": "device", "src": src},
+        {"segment": "strava:seg-strava", "t0": 20, "t1": 28, "from": "device", "src": src},
+    ]
+    doc = json.loads(exp.segments_path.read_text())
+    assert list(doc.keys()) == SCHEMA["segments_keys"] and doc["schema_version"] == 1 and doc["importer"] == "garmin-mcp@test"
+    assert [list(s.keys()) for s in doc["segments"]] == [SCHEMA["segment_keys"]] * 2
+    watch, strava = doc["segments"]
+    assert watch["id"] == "garmin:seg-watch" and watch["name"] == "Neutral Flat Renamed" and watch["distance"] == 1100.0
+    assert watch["start"] == [round(460000000 * 180 / 2**31, 6), round(-450000000 * 180 / 2**31, 6)]
+    assert watch["end"] == [round(461000000 * 180 / 2**31, 6), round(-449000000 * 180 / 2**31, 6)]
+    assert watch["sport"] == e["sport"] and watch["starred"] is False and watch["from"] == "device" and watch["created_from"] is None
+    assert strava["id"] == "strava:seg-strava" and strava["distance"] == 500.0
+    ids = {s["id"] for s in doc["segments"]}
+    assert not ids & {"garmin:seg-fail", "strava:seg-fail", "garmin:seg-before", "garmin:None"}
+
+    client = GarminClient(FakeTransport(), background_gap=0, interactive_gap=0, jitter=0, sleep=lambda s: None)
+    engine = SyncEngine(db, client, str(tmp_path), sleep=lambda s: None)
+    app = build_app(create_server(Mirror(db, engine, client), None), snapshot=None, exporter=exp, export_token="t")
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+            url = "/export/canonical/v1/segments.json"
+            assert (await c.get(url)).status_code == 401
+            r = await c.get(url, headers={"authorization": "Bearer t"})
+            assert r.status_code == 200 and r.headers["content-type"].startswith("application/json")
+            assert r.json() == doc
+
+    asyncio.run(go())
+
+
+def test_no_segment_laps_gives_empty_efforts(setup):
+    _, _, _, pub, exp = setup
+    exp.run(pub.publish())
+    assert manifest(exp)["activities"][0]["segment_efforts"] == []
+    assert json.loads(exp.segments_path.read_text())["segments"] == []

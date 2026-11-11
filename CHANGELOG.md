@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- The canonical export's entries carry `segment_efforts`: the segments the watch timed live (FIT `segment_lap` messages with status `end` and a uuid), as `strava:<uuid>` or `garmin:<uuid>` ids with `t0`/`t1` seconds from the entry's first record and `from: "device"`. The segments they reference are listed in a new `segments.json` beside `manifest.json`, which is served at `/export/canonical/v1/segments.json` (schema v1, optional for consumers).
+
 ## [1.11.1] - 2026-11-10
 
 ### Changed

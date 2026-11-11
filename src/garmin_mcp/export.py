@@ -4,6 +4,7 @@
 Layout of the export directory (GARMIN_EXPORT_DIR, default <data dir>/export, plus canonical-v1/):
 
     manifest.json                     schema_version, importer, generated_at and one entry per activity
+    segments.json                     the segments the entries' segment_efforts reference (device-recorded laps)
     activities/garmin-<id>.parquet    one row per recorded second: t, lat, lng, alt, dist, hr, power, cadence
 
 and, beside the export directory (never served), weather-v1.json: the modelled weather found for each activity
@@ -25,6 +26,7 @@ import logging
 import os
 import re
 import shutil
+import statistics
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -70,7 +72,7 @@ FOOT = {"run", "trail_run", "treadmill_run", "walk", "hike"}
 WHEEL = {"ride", "gravel_ride", "mountain_bike", "indoor_ride", "virtual_ride"}
 INDOOR_TYPES = {"indoor_cycling", "virtual_ride", "treadmill_running", "indoor_rowing"}
 
-_SERVABLE = re.compile(r"manifest\.json|activities/garmin-\d+\.parquet")
+_SERVABLE = re.compile(r"manifest\.json|segments\.json|activities/garmin-\d+\.parquet")
 
 
 def cadence_unit(sport: str) -> str | None:
@@ -144,6 +146,10 @@ class CanonicalExporter:
     def manifest_path(self) -> Path:
         return self.out_dir / "manifest.json"
 
+    @property
+    def segments_path(self) -> Path:
+        return self.out_dir / "segments.json"
+
     def run(self, snapshot: Path) -> dict[str, Any]:
         t_start = time.time()
         activities_dir = self.out_dir / "activities"
@@ -182,6 +188,22 @@ class CanonicalExporter:
                 ) h USING (activity_id)
                 WHERE a.deleted_at IS NULL
                 ORDER BY s.start, s.activity_id
+                """
+            ).fetchall()
+            laps = con.execute(
+                """
+                WITH l AS (SELECT activity_id, fields FROM g.fit_message WHERE mesg = 'segment_lap_mesgs')
+                SELECT activity_id, json_extract_string(fields, '$.uuid') AS uuid, json_extract_string(fields, '$.manufacturer') AS mfr,
+                       json_extract_string(fields, '$.name') AS name,
+                       epoch(json_extract_string(fields, '$.start_time')::TIMESTAMPTZ) AS st,
+                       epoch(json_extract_string(fields, '$.timestamp')::TIMESTAMPTZ) AS en,
+                       try_cast(json_extract_string(fields, '$.total_distance') AS DOUBLE) AS dist,
+                       try_cast(json_extract_string(fields, '$.start_position_lat') AS BIGINT) AS slat,
+                       try_cast(json_extract_string(fields, '$.start_position_long') AS BIGINT) AS slng,
+                       try_cast(json_extract_string(fields, '$.end_position_lat') AS BIGINT) AS elat,
+                       try_cast(json_extract_string(fields, '$.end_position_long') AS BIGINT) AS elng
+                FROM l
+                WHERE json_extract_string(fields, '$.status') = 'end' AND json_extract_string(fields, '$.uuid') IS NOT NULL
                 """
             ).fetchall()
             previous: dict[str, dict[str, Any]] = {}
@@ -231,6 +253,48 @@ class CanonicalExporter:
 
         weathers = self._weather(acts, activities_dir) if self.weather else {}
         now = _iso(datetime.now(UTC))
+        starts = {int(a[0]): a[3].timestamp() for a in acts}
+        efforts: dict[int, list[dict[str, Any]]] = {}
+        seg_laps: dict[str, list[tuple[Any, ...]]] = {}
+        seg_first: dict[str, int] = {}  # the activity of a segment's first effort (acts are sorted by start)
+        order = {int(a[0]): i for i, a in enumerate(acts)}
+        for aid, uuid, mfr, lname, st, en, dist, slat, slng, elat, elng in sorted(laps, key=lambda r: (r[4] is None, r[4], r[1])):
+            aid = int(aid)
+            if aid not in starts or st is None or en is None:
+                continue
+            t0, t1 = round(st - starts[aid]), round(en - starts[aid])
+            if not 0 <= t0 < t1:
+                continue
+            seg = f"{'strava' if mfr == 'strava' else 'garmin'}:{uuid}"
+            efforts.setdefault(aid, []).append({"segment": seg, "t0": t0, "t1": t1, "from": "device", "src": f"garmin:{aid}"})
+            seg_laps.setdefault(seg, []).append((st, lname, dist, slat, slng, elat, elng))
+            if seg not in seg_first or order[aid] < order[seg_first[seg]]:
+                seg_first[seg] = aid
+        for lst in efforts.values():
+            lst.sort(key=lambda e: (e["t0"], e["segment"]))
+        def degrees(v: int | None) -> float | None:
+            return None if v is None else round(v * 180 / 2**31, 6)
+
+        def point(lat: int | None, lng: int | None) -> list[float] | None:
+            return None if lat is None or lng is None else [degrees(lat), degrees(lng)]  # type: ignore[list-item]
+
+        seg_acts = {int(a[0]): a[4] for a in acts}
+        segments = []
+        for seg in sorted(seg_laps):
+            ls = sorted(seg_laps[seg], key=lambda r: r[0], reverse=True)
+            newest = ls[0]
+            dists = [r[2] for r in ls if r[2] is not None]
+            segments.append({
+                "id": seg,
+                "name": newest[1],
+                "sport": SPORTS.get(seg_acts[seg_first[seg]] or "", "other"),
+                "distance": statistics.median(dists) if dists else None,
+                "start": point(newest[3], newest[4]),
+                "end": point(newest[5], newest[6]),
+                "starred": False,
+                "from": "device",
+                "created_from": None,
+            })
         entries = []
         for aid, n, fingerprint, start, atype, name, manufacturer, manual, hr_sensor, event_type, offset in acts:
             aid = int(aid)
@@ -252,6 +316,7 @@ class CanonicalExporter:
                 "hr_sensor": bool(hr_sensor),
                 "tags": ["race"] if event_type == "race" else [],
                 "weather": weathers.get(aid),
+                "segment_efforts": efforts.get(aid, []),
                 "n": int(n),
                 "sha256": hashes.get(aid, old.get("sha256")),
                 "fingerprint": fingerprint,
@@ -262,6 +327,10 @@ class CanonicalExporter:
         tmp_manifest = self.manifest_path.with_suffix(".json.tmp")
         tmp_manifest.write_text(json.dumps(manifest, indent=1))
         os.replace(tmp_manifest, self.manifest_path)
+        seg_doc = {"schema_version": 1, "importer": self.importer, "generated_at": now, "segments": segments}
+        tmp_segments = self.segments_path.with_suffix(".json.tmp")
+        tmp_segments.write_text(json.dumps(seg_doc, indent=1))
+        os.replace(tmp_segments, self.segments_path)
 
         keep = {Path(e["file"]).name for e in entries}
         removed = 0
@@ -280,5 +349,5 @@ class CanonicalExporter:
         path = self.out_dir / rel
         if not path.is_file():
             return Response("Not found", status_code=404, media_type="text/plain")
-        media = "application/json" if rel == "manifest.json" else "application/octet-stream"
+        media = "application/json" if rel in ("manifest.json", "segments.json") else "application/octet-stream"
         return FileResponse(str(path), media_type=media)
