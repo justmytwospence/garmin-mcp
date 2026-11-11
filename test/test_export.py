@@ -251,6 +251,8 @@ def test_device_segment_efforts_and_segments_json(setup, tmp_path):
         {"segment": "garmin:seg-watch", "t0": 16, "t1": 19, "from": "device", "src": src},
         {"segment": "strava:seg-strava", "t0": 20, "t1": 28, "from": "device", "src": src},
     ]
+    for x in e["segment_efforts"]:
+        assert list(x.keys()) == [k for k in SCHEMA["segment_effort_keys"] if k in x]
     doc = json.loads(exp.segments_path.read_text())
     assert list(doc.keys()) == SCHEMA["segments_keys"] and doc["schema_version"] == 1 and doc["importer"] == "garmin-mcp@test"
     assert [list(s.keys()) for s in doc["segments"]] == [SCHEMA["segment_keys"]] * 2
