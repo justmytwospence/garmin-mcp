@@ -25,7 +25,7 @@ All need `Authorization: Bearer <EXPORT_TOKEN>`.
 
 A browser app on another origin needs CORS: set `EXPORT_CORS_ORIGINS` to its origin(s). The export routes then answer the preflight (including Private Network Access) and carry `Access-Control-Allow-Origin` on every response, 401 and 404 included. No other route gets CORS headers.
 
-`manifest.json` has `schema_version` (1), `importer`, `generated_at` and `activities`, one entry per activity: `id` (`garmin:<id>`), `sources`, `start_time` (UTC, the first record), `utc_offset_min`, `sport` (canonical), `source_sport` (Garmin's type), `name`, `device`, `indoor`, `manual`, `cadence_unit`, `hr_sensor` (a heart-rate strap or armband was connected), `tags` (`["race"]` when Garmin's event type is race, else `[]`), `weather` (modelled weather along the track, or null; see Weather below), `segment_efforts` (see Segments below), `n` (rows), `sha256` and `fingerprint` of the file, `updated_at` and `file`.
+`manifest.json` has `schema_version` (1), `importer`, `generated_at` and `activities`, one entry per activity: `id` (`garmin:<id>`), `sources`, `start_time` (UTC, the first record), `utc_offset_min`, `sport` (canonical), `source_sport` (Garmin's type), `name`, `device`, `indoor`, `manual`, `cadence_unit`, `hr_sensor` (a heart-rate strap or armband was connected), `tags` (`["race"]` when Garmin's event type is race, else `[]`), `weather` (modelled weather along the track, or null; see Weather below), `segment_efforts` (see Segments below), `rider_position` (see Rider position below), `n` (rows), `sha256` and `fingerprint` of the file, `updated_at` and `file`.
 
 Each Parquet file (snappy) has one row per recorded second: `t` (INTEGER seconds from the first record), `lat`, `lng` (INTEGER degrees x 1e7), `alt` and `dist` (DOUBLE metres), `hr`, `power`, `cadence` (FLOAT; cadence as the FIT file counts it, one foot's cycles on foot). Missing values are nulls. When a second has several records, the one with the greatest distance is kept, and among equal distances the earliest record.
 
@@ -34,6 +34,10 @@ Each Parquet file (snappy) has one row per recorded second: `t` (INTEGER seconds
 Each entry's `segment_efforts` lists the segments the watch timed live: one effort per FIT `segment_lap` message with status `end` and a `uuid` (a lap with status `fail`, or without a uuid, is skipped), `{segment, t0, t1, from: "device", src: "garmin:<activity id>"}`, sorted by `t0` then `segment`. `t0` and `t1` are integer seconds from the entry's `start_time` (the first record, the same zero as the Parquet `t`) with `0 <= t0 < t1`. `segment` is `strava:<uuid>` when the lap's manufacturer is `strava` and `garmin:<uuid>` otherwise. The list is `[]` when there are none; there is no `pr_rank` (only Strava ranks efforts).
 
 `segments.json`, written beside `manifest.json`, is `{schema_version: 1, importer, generated_at, segments}`, with each referenced segment once, sorted by id: `id`, `name` and the `start` and `end` points (`[lat, lng]` degrees, 6 decimals) from its newest lap, `sport` (that of its first effort's activity), `distance` (the median of its laps' total distance, metres), `starred` (false), `from` (`"device"`) and `created_from` (null).
+
+## Rider position
+
+Each entry's `rider_position` is `{t, standing}` when the activity was recorded with power pedals that sense the rider's position (Garmin Rally or Vector), else `null`. It comes from the FIT `rider_position_change` events: `t` is the seconds from the entry's `start_time` (the same zero as the Parquet `t`), strictly increasing, and `standing` is 1 (event `standing` or `transition_to_standing`) or 0 (`seated` or `transition_to_seated`) from that second until the next entry. Changes to the state already held are dropped, the later of two events in a second wins, and the rider is seated before the first entry. It is measured, never inferred. The schema SPEC (Rider position) is the contract.
 
 ## Weather
 

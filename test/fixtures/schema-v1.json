@@ -1,5 +1,5 @@
 {"version": 1, "manifest_keys": ["schema_version", "importer", "generated_at", "activities"],
- "entry_keys": ["id", "sources", "start_time", "utc_offset_min", "sport", "source_sport", "name", "device", "indoor", "manual", "cadence_unit", "hr_sensor", "tags", "weather", "segment_efforts", "n", "sha256", "fingerprint", "updated_at", "file"],
+ "entry_keys": ["id", "sources", "start_time", "utc_offset_min", "sport", "source_sport", "name", "device", "indoor", "manual", "cadence_unit", "hr_sensor", "tags", "weather", "segment_efforts", "rider_position", "n", "sha256", "fingerprint", "updated_at", "file"],
  "columns": [["t", "INTEGER"], ["lat", "INTEGER"], ["lng", "INTEGER"], ["alt", "DOUBLE"], ["dist", "DOUBLE"], ["hr", "FLOAT"], ["power", "FLOAT"], ["cadence", "FLOAT"]],
  "segments_keys": ["schema_version", "importer", "generated_at", "segments"],
  "segment_keys": ["id", "name", "sport", "distance", "start", "end", "starred", "from", "created_from"],

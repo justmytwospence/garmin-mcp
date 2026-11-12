@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- The canonical export's entries carry `rider_position`: the seated and standing changes that power pedals (Garmin Rally, Vector) record as FIT `rider_position_change` events, as `{t, standing}` with `t` seconds from the entry's first record, or `null` without them (schema v1, optional for consumers).
+
 ## [1.12.0] - 2026-11-11
 
 ### Added

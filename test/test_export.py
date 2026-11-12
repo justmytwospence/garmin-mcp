@@ -285,3 +285,24 @@ def test_no_segment_laps_gives_empty_efforts(setup):
     exp.run(pub.publish())
     assert manifest(exp)["activities"][0]["segment_efforts"] == []
     assert json.loads(exp.segments_path.read_text())["segments"] == []
+
+
+def test_rider_position_from_power_pedal_events(db, fixtures, tmp_path):
+    summary = next(f for f in fixtures if f["type"] == "activity_summary")
+    aid = int(summary["key"])
+    events = [(0, 0), (100, 3), (103, 1), (150, 1), (200, 2), (203, 0)]
+    with db.transaction() as tx:
+        land(tx, summary["type"], summary["key"], json.dumps(summary["body"]))
+        land_fit(tx, "activity_fit", str(aid), activity_fit(START, seconds=300, rider_positions=events))
+    exp = CanonicalExporter(tmp_path / "export" / "canonical-v1", importer="garmin-mcp@test")
+    exp.run(SnapshotPublisher(db).publish())
+    [e] = manifest(exp)["activities"]
+    assert list(e.keys()) == SCHEMA["entry_keys"]
+    # standing from 100 s (the transition) to 200 s; the repeats (at 0, 103, 150, 203) are dropped
+    assert e["rider_position"] == {"t": [100, 200], "standing": [1, 0]}
+
+
+def test_no_rider_position_events_gives_null(setup):
+    _, _, _, pub, exp = setup
+    exp.run(pub.publish())
+    assert manifest(exp)["activities"][0]["rider_position"] is None

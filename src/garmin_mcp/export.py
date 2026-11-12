@@ -71,6 +71,8 @@ SPORTS: dict[str, str] = {
 FOOT = {"run", "trail_run", "treadmill_run", "walk", "hike"}
 WHEEL = {"ride", "gravel_ride", "mountain_bike", "indoor_ride", "virtual_ride"}
 INDOOR_TYPES = {"indoor_cycling", "virtual_ride", "treadmill_running", "indoor_rowing"}
+# FIT rider_position_change values from power pedals: standing (1) or seated (0) from that second on
+RIDER_POSITIONS = {"standing": 1, "transition_to_standing": 1, "seated": 0, "transition_to_seated": 0}
 
 _SERVABLE = re.compile(r"manifest\.json|segments\.json|activities/garmin-\d+\.parquet")
 
@@ -206,6 +208,13 @@ class CanonicalExporter:
                 WHERE json_extract_string(fields, '$.status') = 'end' AND json_extract_string(fields, '$.uuid') IS NOT NULL
                 """
             ).fetchall()
+            positions = con.execute(
+                """
+                SELECT activity_id, epoch(timestamp) AS ts, rider_position FROM g.fit_event
+                WHERE event = 'rider_position_change' AND rider_position IS NOT NULL AND activity_id IS NOT NULL AND timestamp IS NOT NULL
+                ORDER BY activity_id, ts, idx
+                """
+            ).fetchall()
             previous: dict[str, dict[str, Any]] = {}
             if self.manifest_path.exists():
                 previous = {e["id"]: e for e in json.loads(self.manifest_path.read_text()).get("activities", [])}
@@ -254,6 +263,32 @@ class CanonicalExporter:
         weathers = self._weather(acts, activities_dir) if self.weather else {}
         now = _iso(datetime.now(UTC))
         starts = {int(a[0]): a[3].timestamp() for a in acts}
+        rider: dict[int, dict[str, list[int]]] = {}
+        for aid, ts, position in positions:
+            aid = int(aid)
+            state = RIDER_POSITIONS.get(position)
+            if aid not in starts or state is None:
+                continue
+            r = rider.setdefault(aid, {"t": [], "standing": []})
+            t = max(0, round(ts - starts[aid]))
+            if r["t"] and r["t"][-1] == t:  # the later of two events in a second wins
+                r["standing"][-1] = state
+            else:
+                r["t"].append(t)
+                r["standing"].append(state)
+        for aid in list(rider):
+            # collapse changes to the state already held (seated before the first event)
+            kept: dict[str, list[int]] = {"t": [], "standing": []}
+            held = 0
+            for t, st in zip(rider[aid]["t"], rider[aid]["standing"], strict=True):
+                if st != held:
+                    kept["t"].append(t)
+                    kept["standing"].append(st)
+                    held = st
+            if kept["t"]:
+                rider[aid] = kept
+            else:
+                del rider[aid]
         efforts: dict[int, list[dict[str, Any]]] = {}
         seg_laps: dict[str, list[tuple[Any, ...]]] = {}
         seg_first: dict[str, int] = {}  # the activity of a segment's first effort (acts are sorted by start)
@@ -317,6 +352,7 @@ class CanonicalExporter:
                 "tags": ["race"] if event_type == "race" else [],
                 "weather": weathers.get(aid),
                 "segment_efforts": efforts.get(aid, []),
+                "rider_position": rider.get(aid),
                 "n": int(n),
                 "sha256": hashes.get(aid, old.get("sha256")),
                 "fingerprint": fingerprint,

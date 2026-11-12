@@ -71,7 +71,10 @@ class FitWriter:
         return out + struct.pack("<H", crc16(out))
 
 
-def activity_fit(activity_start: datetime, seconds: int = 30, lap_indexes: bool = True) -> bytes:
+def activity_fit(
+    activity_start: datetime, seconds: int = 30, lap_indexes: bool = True, rider_positions: list[tuple[int, int]] | None = None
+) -> bytes:
+    """`rider_positions`: (seconds from the start, position) events as power pedals write them: seated 0, standing 1, transition_to_seated 2, transition_to_standing 3."""
     w = FitWriter()
     t0 = fit_ts(activity_start)
     w.message(0, [(0, ENUM, 4), (1, UINT16, 1), (2, UINT16, 3121), (3, UINT32Z, 12345), (4, UINT32, t0)])  # file_id: activity, garmin
@@ -93,6 +96,8 @@ def activity_fit(activity_start: datetime, seconds: int = 30, lap_indexes: bool 
                 (250, UINT8, 7),  # unknown field -> extra
             ],
         )
+    for at, position in rider_positions or []:
+        w.message(21, [(253, UINT32, t0 + at), (0, ENUM, 44), (1, ENUM, 3), (3, UINT32, position)])  # event rider_position_change, marker
     w.message(78, [(0, UINT16, [850, 860, 870, 0xFFFF, 0xFFFF])])  # hrv
     lap = [(253, UINT32, t0 + seconds), (2, UINT32, t0), (5, ENUM, 1), (7, UINT32, seconds * 1000), (9, UINT32, seconds * 300), (16, UINT8, 122)]
     if lap_indexes:
