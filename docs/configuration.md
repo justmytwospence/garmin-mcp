@@ -18,17 +18,18 @@ Everything is an environment variable. In Docker, set them in `.env`: `compose.y
 |---|---|---|
 | `GARMIN_DB_PATH` | the user data directory: `~/.local/share/garmin-mcp/garmin.duckdb` (Linux, or `$XDG_DATA_HOME`), `~/Library/Application Support/garmin-mcp/garmin.duckdb` (macOS), `%LOCALAPPDATA%\garmin-mcp\garmin.duckdb` (Windows); `/data/garmin.duckdb` in the image | The mirror. FIT files go to `fit/` next to it, DuckDB's spill files to `duckdb-tmp/`. One process at a time |
 | `GARMIN_SNAPSHOT_INTERVAL_HOURS` | `6` | How long routine changes (wellness days, refetches) wait before the snapshot is republished. Each publish copies the whole mirror, gigabytes after a few years of FIT data |
-| `GARMIN_EXPORT` | `off` | `canonical` writes the [canonical export](canonical-export.md) after each snapshot publish |
+| `GARMIN_EXPORT` | `off` | `canonical`, `wellness` or both, comma-separated: writes the [canonical export](canonical-export.md) and/or the [wellness export](wellness-export.md) after each snapshot publish |
 | `GARMIN_EXPORT_WEATHER` | `on` | With the canonical export: ask [Open-Meteo](https://open-meteo.com) for the weather along each outdoor activity's track (one point every 10 minutes: positions, altitudes and times are sent) and write it as `weather`; `off` writes `null` |
 | `GARMIN_EXPORT_DIR` | `<data dir>/export` | Where the canonical export is written |
 | `EXPORT_TOKEN` | unset | Bearer token for `/export/canonical/v1/`; the route is disabled without it |
 | `EXPORT_CORS_ORIGINS` | unset | Comma-separated origins (for example `https://effortcurve.com`) a browser app may read the export from; CORS headers go on `/export/canonical/v1/` only |
 | `EXPORT_OIDC_ISSUER` | unset | An `https://` OIDC issuer (Authelia, Authentik, Keycloak ...): browser apps sign in there and the export accepts its JWTs issued to `EXPORT_OIDC_CLIENT_ID`. Unset: the server runs its own one-page sign-in (approve with `EXPORT_TOKEN`) |
-| `EXPORT_OIDC_CLIENT_ID` | `effortcurve` | The OIDC client the browser app uses |
+| `EXPORT_OIDC_CLIENT_ID` | `effortcurve,wellness-lab` | The OIDC client ids the browser apps use (comma-separated); the export accepts tokens issued to any of them |
 | `GARMIN_TRANSPORT` | `connect` | `personal` uses Garmin's official Personal API instead of the email/password login; see [authentication](authentication.md#personal-api-key) |
 | `GARMIN_PERSONAL_API_KEY`, `GARMIN_PERSONAL_API_KEY_FILE` | unset | The Personal API key (or a file holding it); required with `GARMIN_TRANSPORT=personal` |
 | `GARMIN_PERSONAL_API_BASE_URL` | `https://personal.connectapi.garmin.com` | Override for tests |
 | `GARMIN_SNAPSHOT_ACTIVITY_DELAY_MINUTES` | `15` | How soon a new or re-downloaded activity is published (several downloads in a row share one copy) |
+| `GARMIN_SNAPSHOT_WELLNESS_DELAY_MINUTES` | `30` | How soon after last night's sleep or HRV day lands the snapshot is published (at most one such publish a day) |
 | `GARMIN_SNAPSHOT_DIR` | `snapshot/` next to the mirror | Where the read-only snapshot `garmin.duckdb` is published |
 | `DUCKDB_MEMORY_LIMIT` | DuckDB's default, 80% of RAM (`512MB` in the image) | DuckDB's buffer pool limit. Always set it in a container; see [Operations](operations.md#memory) |
 | `DUCKDB_THREADS` | all cores (`2` in the image) | DuckDB worker threads |

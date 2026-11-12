@@ -62,6 +62,7 @@ nav:
       - Extras: extras.md
       - Strava sync: strava-sync.md
       - Canonical export: canonical-export.md
+      - Wellness export: wellness-export.md
   - Operate:
       - Operations: operations.md
       - Troubleshooting: troubleshooting.md

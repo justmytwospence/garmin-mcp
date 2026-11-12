@@ -1,6 +1,6 @@
 # Extras
 
-Three compose profiles read the snapshot the server publishes; a fourth puts OAuth in front of the server ([Authentication](authentication.md#oauth-21-with-your-own-provider)). Each is self-contained and optional: `docker compose --profile grafana --profile notebooks --profile backup up -d` starts them all, `docker compose up -d` without profiles starts none. If you already run Grafana, marimo or a backup tool, the [last section](#bring-your-own) shows how to point them at the data.
+Four compose profiles read the snapshot the server publishes (Grafana, notebooks, backups and Wellness Lab); another puts OAuth in front of the server ([Authentication](authentication.md#oauth-21-with-your-own-provider)). Each is self-contained and optional: `docker compose --profile grafana --profile notebooks --profile backup up -d` starts them all, `docker compose up -d` without profiles starts none. If you already run Grafana, marimo or a backup tool, the [last section](#bring-your-own) shows how to point them at the data.
 
 ## Grafana
 
@@ -35,6 +35,15 @@ A [marimo](https://marimo.io) app on `http://localhost:2718` serving `deploy/not
 - Activity records: heart rate, power, speed and altitude per second for the six most recent activities with a FIT file, one tab each, straight from `fit_record`.
 
 The notebook is bind-mounted, so edits apply on the next page load without a rebuild. To work on it interactively, open it with `marimo edit` against a local copy of the snapshot (`GARMIN_SNAPSHOT=/path/to/garmin.duckdb`); `marimo export html deploy/notebooks/garmin.py` produces a static page with the charts embedded, which the tabs and the Altair zoom survive. The app opens a new read-only connection on each page load, so it picks up a replaced snapshot by itself.
+
+## Wellness Lab
+
+```sh
+# .env: GARMIN_EXPORT=canonical,wellness, EXPORT_TOKEN, LAB_TOKEN
+docker compose --profile wellness-lab up -d
+```
+
+[Wellness Lab](https://github.com/justmytwospence/wellness-lab) (`ghcr.io/justmytwospence/wellness-lab`) on `http://localhost:8080`: full-resolution nights, baselines and HRV methods with their citations, event studies, and an inbox where it proposes illness, alcohol, travel and altitude episodes for you to confirm or deny. It syncs the [wellness export](wellness-export.md) from this server every 15 minutes into its own `wellness-lab-data` volume, so the profile needs `GARMIN_EXPORT` to include `wellness` and `EXPORT_TOKEN` set. Set `LAB_TOKEN` to put its UI behind a sign-in, and `NTFY_URL` or `NOTIFY_WEBHOOK_URL` to be told when it has a question. Back up the `wellness-lab-data` volume: your labels cannot be recomputed.
 
 ## Backups
 

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- The wellness export: `GARMIN_EXPORT=wellness` (a comma list with `canonical`) writes sleep, HRV, heart rate, stress, respiration, SpO2, Body Battery, steps, altitude and the daily summaries in Wellness Lab's `wellness-v1` format and serves them at `/export/wellness/v1/` with the canonical export's sign-in (client `wellness-lab`; `EXPORT_OIDC_CLIENT_ID` takes a comma list).
+- The snapshot is republished `GARMIN_SNAPSHOT_WELLNESS_DELAY_MINUTES` (30) after last night's sleep or HRV day lands, at most once a day.
+- A `wellness-lab` compose profile.
+
 ## [1.13.0] - 2026-11-12
 
 ### Added
