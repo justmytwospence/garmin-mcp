@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-11-12
+
 ### Added
 
 - The canonical export's entries carry `rider_position`: the seated and standing changes that power pedals (Garmin Rally, Vector) record as FIT `rider_position_change` events, as `{t, standing}` with `t` seconds from the entry's first record, or `null` without them (schema v1, optional for consumers).
@@ -197,7 +199,8 @@ The first release meant for other people: a self-hosted compose stack with docum
 
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
-[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/justmytwospence/garmin-mcp/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.10.0...v1.11.0
