@@ -428,7 +428,7 @@ class WellnessExporter:
                 if old is None or old.get("fingerprint") != fp or not dest.exists():
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     part = stage / f"rr-{int(aid)}.parquet"
-                    con.execute(f"COPY (SELECT (rr_interval * 1000)::FLOAT AS rr FROM g.fit_hrv WHERE activity_id = {int(aid)} ORDER BY idx, pos) TO '{part}' (FORMAT parquet, COMPRESSION snappy)")
+                    con.execute(f"COPY (SELECT round(rr_interval * 1000)::FLOAT AS rr FROM g.fit_hrv WHERE activity_id = {int(aid)} ORDER BY idx, pos) TO '{part}' (FORMAT parquet, COMPRESSION snappy)")
                     os.replace(part, dest)
                     digest = _sha256(dest)
                     written += 1
