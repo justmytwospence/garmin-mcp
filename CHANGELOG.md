@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-11-12
+
 ### Added
 
 - The wellness export: `GARMIN_EXPORT=wellness` (a comma list with `canonical`) writes sleep, HRV, heart rate, stress, respiration, SpO2, Body Battery, steps, altitude and the daily summaries in Wellness Lab's `wellness-v1` format and serves them at `/export/wellness/v1/` with the canonical export's sign-in (client `wellness-lab`; `EXPORT_OIDC_CLIENT_ID` takes a comma list).
@@ -205,7 +207,8 @@ The first release meant for other people: a self-hosted compose stack with docum
 
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
-[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/justmytwospence/garmin-mcp/compare/v1.11.0...v1.11.1
