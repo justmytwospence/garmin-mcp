@@ -8,6 +8,7 @@
 #   --profile oauth       OAuth 2.1 in front of /mcp for any OIDC provider (agentgateway)
 #   --profile grafana     Grafana with the DuckDB datasource and a provisioned dashboard
 #   --profile notebooks   a marimo notebook app over the snapshot
+#   --profile wellness-lab  sleep, HRV and health analytics (Wellness Lab) over the wellness export
 #   --profile backup      nightly archives of the tokens, FIT files and snapshot in ./backups
 #   e.g. docker compose --profile grafana --profile backup up -d
 #
@@ -133,6 +134,32 @@ services:
         limits:
           memory: ${NOTEBOOKS_MEMORY:-1024M}
 
+  # --- profile wellness-lab: sleep, HRV and health analytics over the wellness export ----
+  # Needs GARMIN_EXPORT to include "wellness" and EXPORT_TOKEN set in .env.
+  wellness-lab:
+    profiles: ["wellness-lab"]
+    image: ghcr.io/justmytwospence/wellness-lab:${WELLNESS_LAB_VERSION:-0}
+    restart: unless-stopped
+    depends_on:
+      - garmin-mcp
+    environment:
+      GARMIN_MCP_URL: http://garmin-mcp:8000
+      GARMIN_MCP_TOKEN: ${EXPORT_TOKEN:?set EXPORT_TOKEN in .env for the wellness-lab profile}
+      LAB_TOKEN: ${LAB_TOKEN:-}
+      LAB_PUBLIC_URL: ${LAB_PUBLIC_URL:-}
+      NTFY_URL: ${NTFY_URL:-}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+    volumes:
+      - wellness-lab-data:/data
+    ports:
+      - "${WELLNESS_LAB_PORT:-8080}:8080"
+    deploy:
+      resources:
+        limits:
+          memory: ${WELLNESS_LAB_MEMORY:-1024M}
+    security_opt:
+      - no-new-privileges:true
+
   # --- profile backup: archives of tokens, FIT files and the snapshot --------------------
   # Nightly tar.gz into ./backups (offen/docker-volume-backup; point BACKUP_* at S3, WebDAV,
   # SSH, ... instead, see its README). The live garmin.duckdb and DuckDB's temp directory
@@ -155,6 +182,7 @@ services:
 volumes:
   garmin-data:
   grafana-data:
+  wellness-lab-data:
 
 secrets:
   mcp-bearer-token:
