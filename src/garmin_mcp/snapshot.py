@@ -39,6 +39,10 @@ _RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 # `activity_delay` instead of the idle interval, which covers everything else. Activity-list refreshes (list_recent,
 # poll) report a change on most runs (metadata moves), so they wait for the idle interval like the rest.
 ACTIVITY_KINDS = frozenset({"activity_fit"})
+# last night's sleep and HRV days: readers that follow them (Wellness Lab) want them soon, but at most one such publish a
+# day (the day's wellness FIT files change all day and each publish copies the whole mirror)
+WELLNESS_KINDS = frozenset({"day:sleep", "day:hrv"})
+WELLNESS_GAP = 20 * HOUR
 # however many activities arrive, at most one copy an hour
 MIN_GAP = HOUR
 
@@ -49,7 +53,7 @@ class SnapshotPublisher:
     so several downloads in a row share one copy)."""
 
     def __init__(self, db: Database, name: str = "garmin.duckdb", *, idle_interval: float = 6 * HOUR, backfill_interval: float = 12 * HOUR,
-                 activity_delay: float = 900.0, on_publish: Callable[[Path], object] | None = None) -> None:
+                 activity_delay: float = 900.0, wellness_delay: float = 1800.0, on_publish: Callable[[Path], object] | None = None) -> None:
         self.db = db
         # called with the snapshot path once at start (when one exists) and after every publish: the canonical export
         self.on_publish = on_publish
@@ -57,6 +61,9 @@ class SnapshotPublisher:
         self.idle_interval = idle_interval
         self.backfill_interval = backfill_interval
         self.activity_delay = activity_delay
+        self.wellness_delay = wellness_delay
+        self.wellness_since: float | None = None
+        self.last_wellness_publish = 0.0
         self.dirty = True
         self.urgent_since: float | None = None
         self.last_published = self.path.stat().st_mtime if self.path.exists() else 0.0
@@ -68,6 +75,8 @@ class SnapshotPublisher:
         self.dirty = True
         if kind in ACTIVITY_KINDS and self.urgent_since is None:
             self.urgent_since = time.time()
+        if kind in WELLNESS_KINDS and self.wellness_since is None and time.time() - self.last_wellness_publish >= WELLNESS_GAP:
+            self.wellness_since = time.time()
 
     def publish(self) -> Path:
         """Checkpoint, copy the database file and swap the copy in. Safe to call from any thread."""
@@ -87,6 +96,9 @@ class SnapshotPublisher:
             os.replace(tmp, self.path)
             self.dirty = False
             self.urgent_since = None
+            if self.wellness_since is not None:
+                self.last_wellness_publish = time.time()
+                self.wellness_since = None
             self.last_published = time.time()
             log.info("snapshot: published %s (%d bytes)", self.path, self.path.stat().st_size)
             return self.path
@@ -96,6 +108,8 @@ class SnapshotPublisher:
             return False
         now = time.time()
         if self.urgent_since is not None and now - self.urgent_since >= self.activity_delay and now - self.last_published >= MIN_GAP:
+            return True
+        if self.wellness_since is not None and now - self.wellness_since >= self.wellness_delay and now - self.last_published >= MIN_GAP:
             return True
         backlog = int(self.db.scalar("SELECT count(*) FROM sync_job WHERE priority >= 20") or 0)
         interval = self.backfill_interval if backlog > 0 else self.idle_interval

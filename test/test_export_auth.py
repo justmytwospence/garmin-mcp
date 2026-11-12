@@ -172,3 +172,22 @@ def test_oidc_mode(tmp_path):
         assert (await c.get("/export/canonical/v1/oauth/authorize", params=q())).status_code == 404
 
     run(make(tmp_path, auth), fn)
+
+
+def test_wellness_client_accepted(tmp_path):
+    app = make(tmp_path, ExportAuth("tok", [ORIGIN]))
+    q2 = {**q(), "client_id": "wellness-lab"}
+
+    async def fn(c):
+        r = await c.get("/export/canonical/v1/oauth/authorize", params=q2)
+        assert r.status_code == 200 and "Wellness Lab" in r.text and "sleep, HRV and health data" in r.text
+        r = await c.get("/export/canonical/v1/oauth/authorize", params={**q2, "client_id": "other"})
+        assert r.status_code == 400
+
+    run(app, fn)
+
+
+def test_oidc_client_list():
+    auth = ExportAuth("tok", [ORIGIN], oidc_issuer="https://idp.example", oidc_client_ids=["effortcurve", "wellness-lab"], fetch_json=lambda url: {"authorization_endpoint": "https://idp.example/a", "token_endpoint": "https://idp.example/t"})
+    assert auth.client_ids == ["effortcurve", "wellness-lab"]
+    assert auth.metadata("http://x", "wellness-lab")["client_id"] == "wellness-lab"

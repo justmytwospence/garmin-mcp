@@ -28,6 +28,7 @@ from .snapshot import SnapshotPublisher
 from .strava_sync import StravaSyncConfig
 from .sync.engine import SyncEngine
 from .tools.base import ToolFilter
+from .wellness_export import WellnessExporter
 
 log = logging.getLogger("garmin_mcp")
 
@@ -43,6 +44,7 @@ class Runtime:
     sync_enabled: bool
     db_path: str
     exporter: CanonicalExporter | None = None
+    wellness_exporter: WellnessExporter | None = None
 
     def close(self) -> None:
         self.snapshot.stop()
@@ -74,6 +76,15 @@ def personal_key(env: dict[str, str]) -> str:
         return ""
 
 
+def export_kinds(env: dict[str, str]) -> set[str]:
+    """The exports GARMIN_EXPORT turns on: a comma list of "canonical" and "wellness", or "off"."""
+    raw = (env.get("GARMIN_EXPORT") or "").strip().lower()
+    kinds = {k.strip() for k in raw.split(",") if k.strip()} - {"off"}
+    if not kinds <= {"canonical", "wellness"}:
+        raise ValueError(f'GARMIN_EXPORT must be a comma list of "canonical" and "wellness" (or "off"), got "{raw}"')
+    return kinds
+
+
 def validate_settings(env: dict[str, str]) -> None:
     """Parse every setting that can be wrong, so a bad value is one line on stderr, not a traceback."""
     ToolFilter.from_env(env)
@@ -84,9 +95,7 @@ def validate_settings(env: dict[str, str]) -> None:
     is_cn(env)
     env_int("DUCKDB_THREADS", 0, env, minimum=1)
     env_int("PORT", 8000, env, minimum=1)
-    export = (env.get("GARMIN_EXPORT") or "").strip().lower()
-    if export not in ("", "off", "canonical"):
-        raise ValueError(f'GARMIN_EXPORT must be "off" or "canonical", got "{export}"')
+    export_kinds(env)
     issuer = (env.get("EXPORT_OIDC_ISSUER") or "").strip()
     if issuer and not issuer.startswith("https://"):
         raise ValueError(f"EXPORT_OIDC_ISSUER must start with https://, got {issuer!r}")
@@ -122,16 +131,30 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
             log.exception("request_log insert failed")
 
     client = GarminClient(PendingTransport(), on_sample=record)
+    kinds = export_kinds(env)
+    export_dir = Path(env.get("GARMIN_EXPORT_DIR") or Path(data_dir) / "export")
     exporter = None
-    if (env.get("GARMIN_EXPORT") or "").strip().lower() == "canonical":
+    if "canonical" in kinds:
         exporter = CanonicalExporter(
-            Path(env.get("GARMIN_EXPORT_DIR") or Path(data_dir) / "export") / "canonical-v1",
+            export_dir / "canonical-v1",
             importer=f"garmin-mcp@{VERSION}",
             weather=env_bool("GARMIN_EXPORT_WEATHER", True, env),
         )
+    wellness_exporter = WellnessExporter(export_dir / "wellness-v1", importer=f"garmin-mcp@{VERSION}") if "wellness" in kinds else None
+    exporters = [e for e in (exporter, wellness_exporter) if e is not None]
+
+    def on_publish(path: Path) -> None:
+        # one failing export never stops the other
+        for e in exporters:
+            try:
+                e.run(path)
+            except Exception:  # noqa: BLE001
+                log.exception("%s failed", type(e).__name__)
+
     snapshot = SnapshotPublisher(
         db,
-        on_publish=exporter.run if exporter else None,
+        on_publish=on_publish if exporters else None,
+        wellness_delay=float(env.get("GARMIN_SNAPSHOT_WELLNESS_DELAY_MINUTES") or 30) * 60,
         idle_interval=float(env.get("GARMIN_SNAPSHOT_INTERVAL_HOURS") or 6) * 3600,
         activity_delay=float(env.get("GARMIN_SNAPSHOT_ACTIVITY_DELAY_MINUTES") or 15) * 60,
     )
@@ -144,7 +167,7 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
         login: LoginManager = PersonalLogin(client, token_dir(env), key=personal_key(env), base_url=env.get("GARMIN_PERSONAL_API_BASE_URL") or None)
     else:
         login = LoginManager(client, token_dir(env), email=env.get("GARMIN_EMAIL") or None, password=env.get("GARMIN_PASSWORD") or None, cn=is_cn(env))
-    rt = Runtime(db, client, engine, mirror, snapshot, login, sync_enabled, db_path, exporter)
+    rt = Runtime(db, client, engine, mirror, snapshot, login, sync_enabled, db_path, exporter, wellness_exporter)
     if start:
         login.start()
         if sync_enabled:
@@ -193,12 +216,13 @@ def serve(args: argparse.Namespace) -> int:
                 mcp_token=mcp_token,
                 snapshot_token=env.get("SNAPSHOT_TOKEN") or "",
                 exporter=rt.exporter,
+                wellness_exporter=rt.wellness_exporter,
                 export_token=env.get("EXPORT_TOKEN") or "",
                 export_auth=ExportAuth(
                     env.get("EXPORT_TOKEN") or "",
                     [o.strip() for o in (env.get("EXPORT_CORS_ORIGINS") or "").split(",") if o.strip()],
                     oidc_issuer=env.get("EXPORT_OIDC_ISSUER") or "",
-                    oidc_client_id=env.get("EXPORT_OIDC_CLIENT_ID") or "effortcurve",
+                    oidc_client_ids=[c.strip() for c in (env.get("EXPORT_OIDC_CLIENT_ID") or "effortcurve,wellness-lab").split(",") if c.strip()],
                 ),
                 export_cors_origins=[o.strip() for o in (env.get("EXPORT_CORS_ORIGINS") or "").split(",") if o.strip()],
                 stateless=env_bool("MCP_STATELESS_HTTP", False, env),

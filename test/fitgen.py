@@ -121,4 +121,30 @@ def wellness_fit(day_start: datetime, minutes: int = 10) -> bytes:
         w.message(55, [(253, UINT32, t0 + i * 60), (3, UINT32, 200 * i), (27, UINT8, 60 + i), (5, ENUM, 6)])  # monitoring: cycles (steps when walking), hr, walking
         w.message(227, [(0, SINT16, 20 + i), (1, UINT32, t0 + i * 60)])  # stress_level
         w.message(297, [(253, UINT32, t0 + i * 60), (0, UINT16, 1500)])  # respiration_rate (breaths/min *100)
+        if i % 2 == 0:
+            w.message(279, [(253, UINT32, t0 + i * 60), (0, UINT16, (2000 + 500) * 5)])  # undocumented altitude message: (m + 500) * 5
+    return w.tobytes()
+
+
+def hrv_status_fit(night_end: datetime, values: list[int]) -> bytes:
+    """An HRV status file (type 68): `values` (ms) every five minutes ending at `night_end`, and the status summary."""
+    w = FitWriter()
+    t_end = fit_ts(night_end)
+    w.message(0, [(0, ENUM, 68), (1, UINT16, 1), (2, UINT16, 3121), (3, UINT32Z, 12345), (4, UINT32, t_end)])
+    for i, v in enumerate(values):
+        w.message(371, [(253, UINT32, t_end - (len(values) - i) * 300), (0, UINT16, int(v * 128))])  # hrv_value, scale 128
+    w.message(370, [(253, UINT32, t_end), (0, UINT16, 60 * 128), (1, UINT16, int(values[-1] * 128)), (2, UINT16, 80 * 128), (3, UINT16, 40 * 128), (4, UINT16, 45 * 128), (5, UINT16, 70 * 128), (6, ENUM, 2)])
+    return w.tobytes()
+
+
+def sleep_fit(start: datetime, stages: list[tuple[int, str]]) -> bytes:
+    """A sleep file (type 49): (minutes, stage) pairs, each stage a change at its start. Stages: awake, light, deep, rem."""
+    codes = {"awake": 1, "light": 2, "deep": 3, "rem": 4}
+    w = FitWriter()
+    t0 = fit_ts(start)
+    w.message(0, [(0, ENUM, 49), (1, UINT16, 1), (2, UINT16, 3121), (3, UINT32Z, 12345), (4, UINT32, t0)])
+    t = t0
+    for minutes, stage in stages:
+        w.message(275, [(253, UINT32, t), (0, ENUM, codes[stage])])  # sleep_level
+        t += minutes * 60
     return w.tobytes()

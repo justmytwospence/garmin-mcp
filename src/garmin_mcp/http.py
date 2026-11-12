@@ -1,6 +1,7 @@
 """The HTTP surface: the MCP Streamable HTTP endpoint at /mcp and /, GET /health, and
 the snapshot at /snapshot.duckdb (bearer SNAPSHOT_TOKEN, byte ranges), the canonical export at
-/export/canonical/v1/ (bearer EXPORT_TOKEN; manifest.json and activities/*.parquet). An optional
+/export/canonical/v1/ (bearer EXPORT_TOKEN; manifest.json and activities/*.parquet) and the wellness export at
+/export/wellness/v1/ (same sign-in; manifest.json and the wellness-v1 Parquet files). An optional
 MCP_BEARER_TOKEN guards the MCP endpoint; MCP_ALLOWED_HOSTS turns on the SDK's Host
 header check (DNS-rebinding protection)."""
 
@@ -19,6 +20,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from .export import CanonicalExporter
 from .export_auth import ExportAuth
 from .snapshot import SnapshotPublisher
+from .wellness_export import WellnessExporter
 
 MCP_PATHS = ("/mcp", "/")
 
@@ -64,6 +66,7 @@ def build_app(
     snapshot_token: str = "",
     stateless: bool = False,
     exporter: CanonicalExporter | None = None,
+    wellness_exporter: WellnessExporter | None = None,
     export_token: str = "",
     export_cors_origins: list[str] | None = None,
     export_auth: ExportAuth | None = None,
@@ -71,6 +74,11 @@ def build_app(
     inner = server.streamable_http_app(streamable_http_path="/mcp", host="0.0.0.0", transport_security=transport_security(allowed_hosts or []), stateless_http=stateless)
     health_body = health or {"status": "ok"}
     cors_origins = set(export_cors_origins or [])
+    # URL prefix -> (what serves it, the GARMIN_EXPORT value that turns it on, the sign-in client id)
+    routes: dict[str, tuple[CanonicalExporter | WellnessExporter | None, str, str]] = {
+        "/export/canonical/v1/": (exporter, "canonical", "effortcurve"),
+        "/export/wellness/v1/": (wellness_exporter, "wellness", "wellness-lab"),
+    }
 
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -91,7 +99,8 @@ def build_app(
                 return
             await snapshot.serve(request)(scope, receive, send)
             return
-        if path.startswith("/export/canonical/v1/") and method == "OPTIONS":
+        prefix = next((p for p in routes if path.startswith(p)), None)
+        if prefix is not None and method == "OPTIONS":
             request = Request(scope, receive)
             origin = request.headers.get("origin") or ""
             headers: dict[str, str] = {}
@@ -107,22 +116,23 @@ def build_app(
                     headers["access-control-allow-private-network"] = "true"
             await Response(status_code=204, headers=headers)(scope, receive, send)
             return
-        if path.startswith("/export/canonical/v1/") and method in ("GET", "HEAD", "POST"):
+        if prefix is not None and method in ("GET", "HEAD", "POST"):
+            target, setting, client_id = routes[prefix]
             request = Request(scope, receive)
             origin = request.headers.get("origin") or ""
             if origin in cors_origins:
                 send = _cors_send(send, origin)
-            if not export_token or exporter is None:
-                await Response("Export serving is disabled (set GARMIN_EXPORT=canonical and EXPORT_TOKEN)", status_code=404, media_type="text/plain")(scope, receive, send)
+            if not export_token or target is None:
+                await Response(f"Export serving is disabled (set GARMIN_EXPORT={setting} and EXPORT_TOKEN)", status_code=404, media_type="text/plain")(scope, receive, send)
                 return
             auth = export_auth or ExportAuth(export_token, list(cors_origins))
-            rel = path.removeprefix("/export/canonical/v1/")
+            rel = path.removeprefix(prefix)
             proto = request.headers.get("x-forwarded-proto") or request.url.scheme
             host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-            base = f"{proto}://{host}/export/canonical/v1"
+            base = f"{proto}://{host}{prefix.rstrip('/')}"
             if rel == "auth" and method == "GET":
                 try:
-                    meta = auth.metadata(base)
+                    meta = auth.metadata(base, client_id)
                 except Exception:  # noqa: BLE001
                     await Response("The identity provider could not be reached", status_code=502, media_type="text/plain")(scope, receive, send)
                     return
@@ -140,7 +150,7 @@ def build_app(
             if not auth.allows(request.headers.get("authorization")):
                 await Response("Unauthorized", status_code=401, media_type="text/plain")(scope, receive, send)
                 return
-            await exporter.serve(rel, request)(scope, receive, send)
+            await target.serve(rel, request)(scope, receive, send)
             return
         if path in MCP_PATHS:
             if mcp_token:

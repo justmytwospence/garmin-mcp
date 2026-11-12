@@ -20,6 +20,11 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 CLIENT_ID = "effortcurve"
+# the browser apps that may sign in: client id -> (title, what it reads)
+CLIENTS: dict[str, tuple[str, str]] = {
+    "effortcurve": ("Effort Curve", "your activities"),
+    "wellness-lab": ("Wellness Lab", "your sleep, HRV and health data"),
+}
 CODE_TTL, ACCESS_TTL, REFRESH_TTL = 120, 3600, 90 * 86400
 
 
@@ -40,11 +45,12 @@ def _default_fetch(url: str) -> dict[str, Any]:
 
 
 class ExportAuth:
-    def __init__(self, export_token: str, cors_origins: list[str], oidc_issuer: str = "", oidc_client_id: str = CLIENT_ID, fetch_json: Callable[[str], dict[str, Any]] | None = None, now: Callable[[], float] = time.time, jwks: Any = None) -> None:
+    def __init__(self, export_token: str, cors_origins: list[str], oidc_issuer: str = "", oidc_client_ids: list[str] | str = CLIENT_ID, fetch_json: Callable[[str], dict[str, Any]] | None = None, now: Callable[[], float] = time.time, jwks: Any = None) -> None:
         self.export_token = export_token
         self.cors_origins = set(cors_origins)
         self.issuer = oidc_issuer
-        self.client_id = oidc_client_id
+        self.client_ids = [oidc_client_ids] if isinstance(oidc_client_ids, str) else list(oidc_client_ids)
+        self.client_id = self.client_ids[0] if self.client_ids else CLIENT_ID
         self.fetch_json = fetch_json or _default_fetch
         self.now = now
         self._jwks = jwks  # a PyJWKClient-like object with get_signing_key_from_jwt
@@ -103,11 +109,11 @@ class ExportAuth:
             self._jwks = jwt.PyJWKClient(self._discovery()["jwks_uri"], cache_keys=True, lifespan=3600)
         return self._jwks
 
-    def metadata(self, base_url: str) -> dict[str, Any]:
+    def metadata(self, base_url: str, client_id: str = CLIENT_ID) -> dict[str, Any]:
         if self.mode == "oidc":
             d = self._discovery()
-            return {"mode": "oidc", "issuer": self.issuer, "authorization_endpoint": d["authorization_endpoint"], "token_endpoint": d["token_endpoint"], "client_id": self.client_id, "scope": "openid offline_access"}
-        return {"mode": "builtin", "issuer": base_url + "/oauth", "authorization_endpoint": base_url + "/oauth/authorize", "token_endpoint": base_url + "/oauth/token", "client_id": CLIENT_ID, "scope": "export"}
+            return {"mode": "oidc", "issuer": self.issuer, "authorization_endpoint": d["authorization_endpoint"], "token_endpoint": d["token_endpoint"], "client_id": client_id if client_id in self.client_ids else self.client_id, "scope": "openid offline_access"}
+        return {"mode": "builtin", "issuer": base_url + "/oauth", "authorization_endpoint": base_url + "/oauth/authorize", "token_endpoint": base_url + "/oauth/token", "client_id": client_id, "scope": "export"}
 
     def allows(self, header: str | None) -> bool:
         from .http import bearer_matches
@@ -125,20 +131,21 @@ class ExportAuth:
 
                 key = self._jwk_client().get_signing_key_from_jwt(tok)
                 claims = jwt.decode(tok, getattr(key, "key", key), algorithms=["RS256", "ES256", "EdDSA"], issuer=self.issuer, options={"verify_aud": False})
-                return claims.get("client_id") == self.client_id or claims.get("azp") == self.client_id
+                return claims.get("client_id") in self.client_ids or claims.get("azp") in self.client_ids
             except Exception:  # noqa: BLE001
                 return False
         return False
 
     # ------------------------------------------------------------ built-in endpoints
     def _page(self, p: dict[str, str], error: str = "", status: int = 200) -> Response:
+        title, noun = CLIENTS.get(p["client_id"], CLIENTS[CLIENT_ID])
         origin = urlparse(p["redirect_uri"]).netloc
         scheme = urlparse(p["redirect_uri"]).scheme
         hidden = "".join(f'<input type="hidden" name="{k}" value="{html.escape(v, quote=True)}">' for k, v in p.items())
         err = f'<p class="e">{html.escape(error)}</p>' if error else ""
         body = f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in</title>
 <style>body{{font:16px system-ui;max-width:26rem;margin:12vh auto;padding:0 1rem}}input[type=password]{{width:100%;padding:.5rem;margin:.5rem 0}}button{{padding:.5rem 1rem;margin-right:.5rem}}.e{{color:#b00020}}</style>
-<h1>Effort Curve</h1><p><strong>{html.escape(scheme + '://' + origin)}</strong> wants to read your activities from this server.</p>{err}
+<h1>{html.escape(title)}</h1><p><strong>{html.escape(scheme + '://' + origin)}</strong> wants to read {html.escape(noun)} from this server.</p>{err}
 <form method="post">{hidden}<label>Export token<input type="password" name="token" autocomplete="off" autofocus></label>
 <button name="action" value="approve">Approve</button><button name="action" value="deny">Deny</button></form>"""
         return HTMLResponse(body, status_code=status, headers={"Content-Security-Policy": f"default-src 'none'; style-src 'unsafe-inline'; form-action 'self' {scheme}://{origin}", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"})
@@ -155,7 +162,7 @@ class ExportAuth:
         else:
             form = dict(request.query_params)
         p = {k: form.get(k, "") for k in ("response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method")}
-        if p["response_type"] != "code" or p["client_id"] != CLIENT_ID or p["code_challenge_method"] != "S256" or not p["code_challenge"] or not p["state"]:
+        if p["response_type"] != "code" or p["client_id"] not in CLIENTS or p["code_challenge_method"] != "S256" or not p["code_challenge"] or not p["state"]:
             return self._bad("Invalid sign-in request.")
         if not self.allowed_redirect(p["redirect_uri"]):
             return self._bad("This site is not in EXPORT_CORS_ORIGINS on this server.")
