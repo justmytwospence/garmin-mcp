@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- The canonical export knows more Garmin activity types: street, ultra, indoor and virtual runs, cyclocross, track and recumbent cycling, enduro mountain biking, casual and speed walking, rucking, and backcountry skiing or snowboarding. They get a canonical sport (and, for indoor and virtual runs, the indoor flag) instead of `other`.
+
 ## [1.14.0] - 2026-11-12
 
 ### Added

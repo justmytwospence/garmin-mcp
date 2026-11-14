@@ -46,6 +46,18 @@ def manifest(exp):
     return json.loads(exp.manifest_path.read_text())
 
 
+def test_more_garmin_types_have_a_canonical_sport():
+    from garmin_mcp.export import INDOOR_TYPES, SPORTS, cadence_unit
+
+    assert SPORTS["street_running"] == "run" and SPORTS["ultra_run"] == "run"
+    assert SPORTS["virtual_run"] == "treadmill_run" and SPORTS["indoor_running"] == "treadmill_run"
+    assert {"virtual_run", "indoor_running"} <= INDOOR_TYPES
+    assert SPORTS["cyclocross"] == "gravel_ride" and SPORTS["track_cycling"] == "ride"
+    assert SPORTS["rucking"] == "hike" and SPORTS["speed_walking"] == "walk"
+    assert SPORTS["backcountry_skiing_snowboarding_ws"] == "backcountry_ski"
+    assert cadence_unit(SPORTS["street_running"]) == "cycles" and cadence_unit(SPORTS["cyclocross"]) == "rpm"
+
+
 def test_export_writes_manifest_and_parquet(setup):
     db, _, aid, pub, exp = setup
     stats = exp.run(pub.publish())

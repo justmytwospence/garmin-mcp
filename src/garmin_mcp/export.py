@@ -43,19 +43,31 @@ log = logging.getLogger("garmin_mcp.export")
 SPORTS: dict[str, str] = {
     "running": "run",
     "track_running": "run",
+    "street_running": "run",
+    "ultra_run": "run",
+    "indoor_running": "treadmill_run",
+    "virtual_run": "treadmill_run",
     "trail_running": "trail_run",
     "treadmill_running": "treadmill_run",
     "walking": "walk",
+    "casual_walking": "walk",
+    "speed_walking": "walk",
     "hiking": "hike",
     "mountaineering": "hike",
+    "rucking": "hike",
     "snow_shoe_ws": "hike",
     "cycling": "ride",
     "road_biking": "ride",
+    "track_cycling": "ride",
+    "recumbent_cycling": "ride",
+    "cyclocross": "gravel_ride",
+    "enduro_mtb": "mountain_bike",
     "gravel_cycling": "gravel_ride",
     "mountain_biking": "mountain_bike",
     "indoor_cycling": "indoor_ride",
     "virtual_ride": "virtual_ride",
     "backcountry_skiing": "backcountry_ski",
+    "backcountry_skiing_snowboarding_ws": "backcountry_ski",
     "resort_skiing": "resort_ski",
     "resort_skiing_snowboarding_ws": "resort_ski",
     "skate_skiing_ws": "skate_ski",
@@ -70,7 +82,7 @@ SPORTS: dict[str, str] = {
 }
 FOOT = {"run", "trail_run", "treadmill_run", "walk", "hike"}
 WHEEL = {"ride", "gravel_ride", "mountain_bike", "indoor_ride", "virtual_ride"}
-INDOOR_TYPES = {"indoor_cycling", "virtual_ride", "treadmill_running", "indoor_rowing"}
+INDOOR_TYPES = {"indoor_cycling", "virtual_ride", "treadmill_running", "indoor_running", "virtual_run", "indoor_rowing"}
 # FIT rider_position_change values from power pedals: standing (1) or seated (0) from that second on
 RIDER_POSITIONS = {"standing": 1, "transition_to_standing": 1, "seated": 0, "transition_to_seated": 0}
 
