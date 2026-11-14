@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-11-13
+
 ### Added
 
 - The canonical export knows more Garmin activity types: street, ultra, indoor and virtual runs, cyclocross, track and recumbent cycling, enduro mountain biking, casual and speed walking, rucking, and backcountry skiing or snowboarding. They get a canonical sport (and, for indoor and virtual runs, the indoor flag) instead of `other`.
@@ -211,7 +213,8 @@ The first release meant for other people: a self-hosted compose stack with docum
 
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
-[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.11.1...v1.12.0
