@@ -72,7 +72,8 @@ class FitWriter:
 
 
 def activity_fit(
-    activity_start: datetime, seconds: int = 30, lap_indexes: bool = True, rider_positions: list[tuple[int, int]] | None = None
+    activity_start: datetime, seconds: int = 30, lap_indexes: bool = True, rider_positions: list[tuple[int, int]] | None = None,
+    sport: tuple[int, int] | None = None,
 ) -> bytes:
     """`rider_positions`: (seconds from the start, position) events as power pedals write them: seated 0, standing 1, transition_to_seated 2, transition_to_standing 3."""
     w = FitWriter()
@@ -105,7 +106,7 @@ def activity_fit(
     else:  # some devices write laps without message_index
         w.message(19, lap)
         w.message(19, lap)
-    w.message(18, [(253, UINT32, t0 + seconds), (2, UINT32, t0), (254, UINT16, 0), (5, ENUM, 1), (7, UINT32, seconds * 1000), (9, UINT32, seconds * 300), (16, UINT8, 122), (25, UINT16, 0), (26, UINT16, 1)])
+    w.message(18, [(253, UINT32, t0 + seconds), (2, UINT32, t0), (254, UINT16, 0), (5, ENUM, 1), (7, UINT32, seconds * 1000), (9, UINT32, seconds * 300), (16, UINT8, 122), (25, UINT16, 0), (26, UINT16, 1), *([(5, ENUM, sport[0]), (6, ENUM, sport[1])] if sport else [])])  # session; sport 4 fitness_equipment, sub_sport 28 indoor_skiing
     w.message(21, [(253, UINT32, t0 + seconds), (0, ENUM, 0), (1, ENUM, 4), (3, UINT32, 0)])  # stop_all
     w.message(34, [(253, UINT32, t0 + seconds), (0, UINT32, seconds * 1000), (1, UINT16, 1), (2, ENUM, 26), (3, ENUM, 1), (4, ENUM, 0)])  # activity
     w.message(300, [(0, UINT8, 1), (253, UINT32, t0)])  # unknown message -> fit_message

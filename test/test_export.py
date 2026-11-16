@@ -58,6 +58,19 @@ def test_more_garmin_types_have_a_canonical_sport():
     assert cadence_unit(SPORTS["street_running"]) == "cycles" and cadence_unit(SPORTS["cyclocross"]) == "rpm"
 
 
+def test_ergometers_are_classified_from_type_title_and_fit_sub_sport():
+    from garmin_mcp.export import SPORTS, cadence_unit, sport_of
+
+    assert SPORTS["indoor_rowing"] == "indoor_row" and SPORTS["cross_country_indoor_skiing"] == "ski_erg"
+    assert sport_of("fitness_equipment", "Gym & Fitness Equipment", "indoor_skiing") == "ski_erg"
+    assert sport_of("indoor_rowing", "Indoor Rowing", "indoor_rowing") == "indoor_row"
+    assert sport_of("indoor_rowing", "SkiErg", "indoor_rowing") == "ski_erg"
+    assert sport_of("rowing", "Row", None) == "row"
+    assert sport_of("cross_country_skiing_ws", "Classic", None) == "classic_ski"
+    assert sport_of("fitness_equipment", "Squat", None) == "other"
+    assert cadence_unit("ski_erg") == "spm" and cadence_unit("indoor_row") == "spm" and cadence_unit("row") is None
+
+
 def test_export_writes_manifest_and_parquet(setup):
     db, _, aid, pub, exp = setup
     stats = exp.run(pub.publish())
@@ -318,3 +331,16 @@ def test_no_rider_position_events_gives_null(setup):
     _, _, _, pub, exp = setup
     exp.run(pub.publish())
     assert manifest(exp)["activities"][0]["rider_position"] is None
+
+
+def test_indoor_ski_erg_session_is_exported_as_a_ski_erg(db, fixtures, tmp_path):
+    summary = next(f for f in fixtures if f["type"] == "activity_summary")
+    with db.transaction() as tx:
+        land(tx, summary["type"], summary["key"], json.dumps(summary["body"]))
+        land_fit(tx, "activity_fit", summary["key"], activity_fit(START, sport=(4, 25)))
+    pub = SnapshotPublisher(db)
+    exp = CanonicalExporter(tmp_path / "export" / "canonical-v1", importer="garmin-mcp@test")
+    exp.run(pub.publish())
+    [e] = manifest(exp)["activities"]
+    assert e["sport"] == "ski_erg" and e["indoor"] is True and e["cadence_unit"] == "spm"
+    assert e["weather"] is None

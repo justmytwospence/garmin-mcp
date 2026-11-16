@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- The canonical export knows ski ergometers and indoor rowing: sports `ski_erg` (a FIT session of fitness equipment with sub-sport indoor skiing, the `cross_country_indoor_skiing` type, or an indoor rowing or fitness-equipment activity titled SkiErg) and `indoor_row` (`indoor_rowing`), both indoor and without weather, with `cadence_unit` `spm`. Existing entries are reclassified on the next export without rewriting their recordings.
+
 ## [1.15.0] - 2026-11-13
 
 ### Added

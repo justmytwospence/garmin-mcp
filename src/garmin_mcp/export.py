@@ -75,18 +75,31 @@ SPORTS: dict[str, str] = {
     "lap_swimming": "swim",
     "open_water_swimming": "swim",
     "rowing": "row",
-    "indoor_rowing": "row",
+    "indoor_rowing": "indoor_row",
+    "cross_country_indoor_skiing": "ski_erg",
     "kayaking_v2": "paddle",
     "stand_up_paddleboarding_v2": "paddle",
     "paddling": "paddle",
 }
 FOOT = {"run", "trail_run", "treadmill_run", "walk", "hike"}
 WHEEL = {"ride", "gravel_ride", "mountain_bike", "indoor_ride", "virtual_ride"}
-INDOOR_TYPES = {"indoor_cycling", "virtual_ride", "treadmill_running", "indoor_running", "virtual_run", "indoor_rowing"}
+INDOOR_TYPES = {"indoor_cycling", "virtual_ride", "treadmill_running", "indoor_running", "virtual_run", "indoor_rowing", "cross_country_indoor_skiing"}
+ERGS = {"ski_erg", "indoor_row"}
+SKI_ERG = re.compile(r"\bski[\s-]?erg\b", re.I)
+_ERG_TYPES = {"indoor_rowing", "rowing", "fitness_equipment", "cross_country_skiing_ws", "cross_country_indoor_skiing"}
 # FIT rider_position_change values from power pedals: standing (1) or seated (0) from that second on
 RIDER_POSITIONS = {"standing": 1, "transition_to_standing": 1, "seated": 0, "transition_to_seated": 0}
 
 _SERVABLE = re.compile(r"manifest\.json|segments\.json|activities/garmin-\d+\.parquet")
+
+
+def sport_of(atype: str | None, name: str | None, fit_sub: str | None) -> str:
+    """The canonical sport: a ski or rowing ergometer from the FIT sub-sport (or an explicit SkiErg title), else the type."""
+    if fit_sub == "indoor_skiing" or (SKI_ERG.search(name or "") and (atype or "") in _ERG_TYPES):
+        return "ski_erg"
+    if fit_sub == "indoor_rowing":
+        return "indoor_row"
+    return SPORTS.get(atype or "", "other")
 
 
 def cadence_unit(sport: str) -> str | None:
@@ -95,6 +108,8 @@ def cadence_unit(sport: str) -> str | None:
         return "cycles"
     if sport in WHEEL:
         return "rpm"
+    if sport in ERGS:
+        return "spm"
     return None
 
 
@@ -135,7 +150,7 @@ class CanonicalExporter:
                 session = requests.Session()
                 session.headers["User-Agent"] = f"{self.importer} (+https://github.com/justmytwospence/garmin-mcp)"
             cands = [
-                {"id": f"garmin:{int(a[0])}", "fingerprint": a[2], "start_time": _iso(a[3]), "indoor": (a[4] or "") in INDOOR_TYPES, "manual": bool(a[7])}
+                {"id": f"garmin:{int(a[0])}", "fingerprint": a[2], "start_time": _iso(a[3]), "indoor": (a[4] or "") in INDOOR_TYPES or sport_of(a[4], a[5], a[10]) in ERGS, "manual": bool(a[7])}
                 for a in acts
             ]
             cache.forget({c["id"] for c in cands})
@@ -189,7 +204,7 @@ class CanonicalExporter:
                     GROUP BY 1
                 )
                 SELECT s.activity_id, s.n, s.records || '|' || s.files AS fingerprint, s.start, a.activity_type, a.activity_name, a.manufacturer,
-                       a.manual_activity, coalesce(h.hr_sensor, false) AS hr_sensor, a.event_type,
+                       a.manual_activity, coalesce(h.hr_sensor, false) AS hr_sensor, a.event_type, fs.fit_sub,
                        coalesce(round((epoch(a.start_time_local::TIMESTAMP) - epoch(a.start_time_gmt)) / 60)::INTEGER, 0)
                            AS utc_offset_min
                 FROM s JOIN g.activity a USING (activity_id)
@@ -200,6 +215,11 @@ class CanonicalExporter:
                                                 OR garmin_product ILIKE 'hrm%') AS hr_sensor
                     FROM g.fit_device_info WHERE activity_id IS NOT NULL GROUP BY 1
                 ) h USING (activity_id)
+                LEFT JOIN (
+                    -- the FIT session's sub-sport (an indoor ski ergometer is fitness equipment with indoor_skiing)
+                    SELECT activity_id, arg_min(sub_sport, message_index) AS fit_sub
+                    FROM g.fit_session WHERE activity_id IS NOT NULL GROUP BY 1
+                ) fs USING (activity_id)
                 WHERE a.deleted_at IS NULL
                 ORDER BY s.start, s.activity_id
                 """
@@ -343,11 +363,11 @@ class CanonicalExporter:
                 "created_from": None,
             })
         entries = []
-        for aid, n, fingerprint, start, atype, name, manufacturer, manual, hr_sensor, event_type, offset in acts:
+        for aid, n, fingerprint, start, atype, name, manufacturer, manual, hr_sensor, event_type, fit_sub, offset in acts:
             aid = int(aid)
             key = f"garmin:{aid}"
             old = previous.get(key, {})
-            sport = SPORTS.get(atype or "", "other")
+            sport = sport_of(atype, name, fit_sub)
             entries.append({
                 "id": key,
                 "sources": [{"kind": "garmin", "id": str(aid)}],
@@ -357,7 +377,7 @@ class CanonicalExporter:
                 "source_sport": atype,
                 "name": name,
                 "device": manufacturer,
-                "indoor": (atype or "") in INDOOR_TYPES,
+                "indoor": (atype or "") in INDOOR_TYPES or sport in ERGS,
                 "manual": bool(manual),
                 "cadence_unit": cadence_unit(sport),
                 "hr_sensor": bool(hr_sensor),
