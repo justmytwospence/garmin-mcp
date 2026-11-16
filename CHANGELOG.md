@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-16
+
 ### Added
 
 - The canonical export knows ski ergometers and indoor rowing: sports `ski_erg` (a FIT session of fitness equipment with sub-sport indoor skiing, the `cross_country_indoor_skiing` type, or an indoor rowing or fitness-equipment activity titled SkiErg) and `indoor_row` (`indoor_rowing`), both indoor and without weather, with `cadence_unit` `spm`. Existing entries are reclassified on the next export without rewriting their recordings.
@@ -217,7 +219,8 @@ The first release meant for other people: a self-hosted compose stack with docum
 
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
-[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.15.0...HEAD
+[Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.16.0...HEAD
+[1.16.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.12.0...v1.13.0
