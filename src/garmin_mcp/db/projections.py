@@ -112,11 +112,13 @@ def stage(tx: Tx, needs: set[tuple[str, str]]) -> None:
     if not meta:
         return
     # The body is a function of its hash, so any row with the hash has it; the
-    # single-column index on content_hash makes each lookup a point read.
+    # single-column index on content_hash makes each lookup a point read. any_value, not
+    # LIMIT 1: when the hash is both committed and in this transaction's own rows, DuckDB
+    # 1.5's parallel LIMIT fails an internal assertion and invalidates the database.
     bodies: dict[str, str | None] = {}
     for *_, h in meta:
         if h is not None and h not in bodies:
-            bodies[h] = tx.scalar("SELECT body FROM raw_payload WHERE content_hash = ? LIMIT 1", [h])
+            bodies[h] = tx.scalar("SELECT any_value(body) FROM raw_payload WHERE content_hash = ?", [h])
     cols: list[list[object]] = [[], [], [], [], [], [], []]
     for kind, type_, key, status, checked_at, fetched_at, h in meta:
         body = bodies.get(h) if h is not None else None

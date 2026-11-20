@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Syncing a payload whose body another object already stored (an empty day, say) no longer crashes the server in a restart loop once the mirror is large: DuckDB 1.5 failed an internal assertion (`BatchedDataCollection::Merge`) on the body lookup's `LIMIT 1`, which now uses `any_value`.
+
 ## [1.16.0] - 2026-11-16
 
 ### Added

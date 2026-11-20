@@ -101,7 +101,7 @@ def read_current(q: _Reader, type_: str, keys: Sequence[str]) -> list[dict[str, 
     )
     for r in rows:
         h = r.pop("content_hash")
-        r["body"] = q.scalar("SELECT body FROM raw_payload WHERE content_hash = ? LIMIT 1", [h]) if h is not None else None
+        r["body"] = q.scalar("SELECT any_value(body) FROM raw_payload WHERE content_hash = ?", [h]) if h is not None else None
         if r["body"] is None:
             r["fetched_at"] = None
     return rows

@@ -255,3 +255,22 @@ def test_fit_file_prefix_isolation(db):
         land_fit(tx, "activity_fit", "12", activity_fit(datetime(2026, 1, 2, 10, 0, tzinfo=UTC), 5))
     assert count(db, "fit_record", "activity_id = 123") == 7
     assert count(db, "fit_record", "activity_id = 12") == 5
+
+
+def test_landing_a_body_another_key_already_has_in_a_large_mirror(tmp_path, fixtures):
+    """A payload whose body another key already stored (an empty day, say) puts its hash in both the committed
+    rows and the transaction's own; with raw_payload large enough to scan in parallel, DuckDB 1.5's LIMIT then
+    failed an internal assertion (BatchedDataCollection::Merge) and invalidated the mirror."""
+    from garmin_mcp.db.database import Database, DatabaseOptions
+
+    db = Database.open(DatabaseOptions(str(tmp_path / "garmin.duckdb"), str(tmp_path / "snapshot"), threads=2))
+    try:
+        body = json.dumps(next(f["body"] for f in fixtures if f["type"] == "hydration"))
+        db.run("INSERT INTO raw_payload SELECT 'filler', 'k' || i, 'h' || i, now(), '{}'::JSON FROM range(300000) t(i)")
+        with db.transaction() as tx:
+            land(tx, "hydration", "2026-01-01", body)
+        with db.transaction() as tx:
+            assert land(tx, "hydration", "2026-01-02", body)
+        assert db.scalar("SELECT count(*) FROM raw_latest WHERE object_type = 'hydration'") == 2
+    finally:
+        db.close()
