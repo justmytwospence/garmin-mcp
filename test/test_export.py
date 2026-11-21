@@ -68,6 +68,10 @@ def test_ergometers_are_classified_from_type_title_and_fit_sub_sport():
     assert sport_of("rowing", "Row", None) == "row"
     assert sport_of("cross_country_skiing_ws", "Classic", None) == "classic_ski"
     assert sport_of("fitness_equipment", "Squat", None) == "other"
+    assert sport_of("skate_skiing_ws", "Rollerski", None) == "skate_roller_ski"
+    assert sport_of("cross_country_skiing_ws", "Classic roller ski", None) == "classic_roller_ski"
+    assert sport_of("skate_skiing_ws", "Boulder Cross Country Skate Skiing", None) == "skate_ski"
+    assert sport_of("running", "Roller ski", None) == "run"
     assert cadence_unit("ski_erg") == "spm" and cadence_unit("indoor_row") == "spm" and cadence_unit("row") is None
 
 

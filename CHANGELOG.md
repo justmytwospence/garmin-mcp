@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- The canonical export files Nordic skiing on roller skis (`skate_roller_ski`, `classic_roller_ski`) when the title names roller skis (Garmin has no roller-ski type). Existing entries are reclassified on the next export.
 - `GARMIN_TRANSPORT=hybrid`: the Personal API for the datasets it serves (activities, details, original FIT files, daily summaries, steps, HRV, Body Battery, weigh-ins, profile settings) and the Connect login for everything else. It needs both the key and the login. Each side fails on its own: with the Connect login missing or expired, the Personal API's datasets and the exports keep going; a request the Personal API fails is sent to Connect. `garmin_sync_status` (`login.sides`) and `/health` show which side is failing.
 
 ### Fixed

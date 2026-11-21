@@ -86,6 +86,9 @@ WHEEL = {"ride", "gravel_ride", "mountain_bike", "indoor_ride", "virtual_ride"}
 INDOOR_TYPES = {"indoor_cycling", "virtual_ride", "treadmill_running", "indoor_running", "virtual_run", "indoor_rowing", "cross_country_indoor_skiing"}
 ERGS = {"ski_erg", "indoor_row"}
 SKI_ERG = re.compile(r"\bski[\s-]?erg\b", re.I)
+# Garmin has no roller-ski type: the title is the only place that says so
+ROLLER_SKI = re.compile(r"\broller[\s-]?ski", re.I)
+NORDIC_ROLLER = {"skate_ski": "skate_roller_ski", "classic_ski": "classic_roller_ski"}
 _ERG_TYPES = {"indoor_rowing", "rowing", "fitness_equipment", "cross_country_skiing_ws", "cross_country_indoor_skiing"}
 # FIT rider_position_change values from power pedals: standing (1) or seated (0) from that second on
 RIDER_POSITIONS = {"standing": 1, "transition_to_standing": 1, "seated": 0, "transition_to_seated": 0}
@@ -94,12 +97,13 @@ _SERVABLE = re.compile(r"manifest\.json|segments\.json|activities/garmin-\d+\.pa
 
 
 def sport_of(atype: str | None, name: str | None, fit_sub: str | None) -> str:
-    """The canonical sport: a ski or rowing ergometer from the FIT sub-sport (or an explicit SkiErg title), else the type."""
+    """The canonical sport: a ski or rowing ergometer from the FIT sub-sport (or an explicit SkiErg title), else the type; Nordic skiing is on roller skis when the title says so (Garmin has no such type)."""
     if fit_sub == "indoor_skiing" or (SKI_ERG.search(name or "") and (atype or "") in _ERG_TYPES):
         return "ski_erg"
     if fit_sub == "indoor_rowing":
         return "indoor_row"
-    return SPORTS.get(atype or "", "other")
+    sport = SPORTS.get(atype or "", "other")
+    return NORDIC_ROLLER[sport] if sport in NORDIC_ROLLER and ROLLER_SKI.search(name or "") else sport
 
 
 def cadence_unit(sport: str) -> str | None:
