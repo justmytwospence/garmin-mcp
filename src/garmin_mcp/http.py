@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hmac
 import json
+from collections.abc import Callable
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -60,7 +61,7 @@ def build_app(
     server: MCPServer,
     *,
     snapshot: SnapshotPublisher | None,
-    health: dict[str, Any] | None = None,
+    health: dict[str, Any] | Callable[[], dict[str, Any]] | None = None,
     allowed_hosts: list[str] | None = None,
     mcp_token: str = "",
     snapshot_token: str = "",
@@ -87,7 +88,7 @@ def build_app(
         path = scope.get("path", "")
         method = scope.get("method", "GET")
         if path == "/health" and method == "GET":
-            await JSONResponse(health_body)(scope, receive, send)
+            await JSONResponse(health_body() if callable(health_body) else health_body)(scope, receive, send)
             return
         if path == "/snapshot.duckdb" and method in ("GET", "HEAD"):
             request = Request(scope, receive)

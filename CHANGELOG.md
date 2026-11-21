@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `GARMIN_TRANSPORT=hybrid`: the Personal API for the datasets it serves (activities, details, original FIT files, daily summaries, steps, HRV, Body Battery, weigh-ins, profile settings) and the Connect login for everything else. It needs both the key and the login. Each side fails on its own: with the Connect login missing or expired, the Personal API's datasets and the exports keep going; a request the Personal API fails is sent to Connect. `garmin_sync_status` (`login.sides`) and `/health` show which side is failing.
+
 ## [1.16.1] - 2026-11-19
 
 ### Fixed

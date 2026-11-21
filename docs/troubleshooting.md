@@ -10,6 +10,8 @@ Every way a login can fail is classified into a short kind, shown with the fix b
 "login": {"state": "failed", "kind": "expired", "error": "The stored tokens in /data/tokens were rejected by Garmin: ...", "fix": "Run `docker compose run --rm garmin-mcp garmin-mcp-auth` ..."}
 ```
 
+With `GARMIN_TRANSPORT=hybrid`, `login.sides` shows the Connect login and the Personal API key separately, and the state is `degraded` while only one of them fails: the other keeps syncing ([hybrid](authentication.md#hybrid)).
+
 While the login state is `failed`, background sync is stopped, nothing is fetched on demand, and every tool keeps answering from the mirror, marked stale. The server never retries a login on its own: the fix is always a person running the auth command, then a restart.
 
 | Kind | What happened | Fix |

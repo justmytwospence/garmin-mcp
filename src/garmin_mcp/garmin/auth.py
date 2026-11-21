@@ -310,3 +310,26 @@ class PersonalLogin(LoginManager):
             return None
         log.info("Personal API token ready (cached in %s)", self.tokenstore)
         return PersonalApiTransport(token)
+
+
+class HybridLogin(LoginManager):
+    """GARMIN_TRANSPORT=hybrid: both logins, combined in a RoutingTransport. One failing side leaves the other
+    working; only when both fail does the server stop syncing, as in the other modes."""
+
+    def __init__(self, client: Any, tokenstore: str, *, key: str, base_url: str | None = None, email: str | None = None, password: str | None = None, cn: bool = False) -> None:
+        super().__init__(client, tokenstore, email=email, password=password, cn=cn)
+        self.personal = PersonalLogin(client, tokenstore, key=key, base_url=base_url)
+
+    def attempt(self) -> Transport | None:
+        from .hybrid import RoutingTransport
+
+        personal = self.personal.attempt()
+        connect = super().attempt()
+        if personal is None and connect is None:
+            p = self.personal.problem or LoginProblem("unknown", "Login failed.", "")
+            c = self.problem or LoginProblem("unknown", "Login failed.", auth_fix())
+            self.problem = LoginProblem(c.kind, f"Garmin Connect: {c.message} Personal API: {p.message}", f"{c.fix} {p.fix}".strip())
+            return None
+        transport = RoutingTransport(personal, connect, personal_problem=self.personal.problem, connect_problem=self.problem)
+        self.problem = None
+        return transport

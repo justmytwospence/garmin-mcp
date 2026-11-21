@@ -20,7 +20,7 @@ from typing import Any
 from .db.database import Database, DatabaseOptions, exit_on_fatal
 from .env import env_bool, env_int
 from .export import CanonicalExporter
-from .garmin.auth import LoginManager, PendingTransport, is_cn, token_dir
+from .garmin.auth import HybridLogin, LoginManager, PendingTransport, is_cn, token_dir
 from .garmin.client import GarminClient, RequestSample
 from .mirror import Mirror
 from .server import SERVER_NAME, VERSION, create_server
@@ -100,10 +100,10 @@ def validate_settings(env: dict[str, str]) -> None:
     if issuer and not issuer.startswith("https://"):
         raise ValueError(f"EXPORT_OIDC_ISSUER must start with https://, got {issuer!r}")
     gt = (env.get("GARMIN_TRANSPORT") or "connect").strip().lower()
-    if gt not in ("connect", "personal"):
-        raise ValueError(f'GARMIN_TRANSPORT must be "connect" or "personal", got "{gt}"')
-    if gt == "personal" and not personal_key(env):
-        raise ValueError("GARMIN_TRANSPORT=personal needs GARMIN_PERSONAL_API_KEY (or GARMIN_PERSONAL_API_KEY_FILE): create a key at https://connect.garmin.com/app/settings/personalApiToken")
+    if gt not in ("connect", "personal", "hybrid"):
+        raise ValueError(f'GARMIN_TRANSPORT must be "connect", "personal" or "hybrid", got "{gt}"')
+    if gt in ("personal", "hybrid") and not personal_key(env):
+        raise ValueError(f"GARMIN_TRANSPORT={gt} needs GARMIN_PERSONAL_API_KEY (or GARMIN_PERSONAL_API_KEY_FILE): create a key at https://connect.garmin.com/app/settings/personalApiToken")
     transport = (env.get("MCP_TRANSPORT") or "stdio").strip().lower()
     if transport not in ("stdio", "http"):
         raise ValueError(f'MCP_TRANSPORT must be "stdio" or "http", got "{transport}"')
@@ -165,6 +165,8 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
         from .garmin.auth import PersonalLogin
 
         login: LoginManager = PersonalLogin(client, token_dir(env), key=personal_key(env), base_url=env.get("GARMIN_PERSONAL_API_BASE_URL") or None)
+    elif (env.get("GARMIN_TRANSPORT") or "connect").strip().lower() == "hybrid":
+        login = HybridLogin(client, token_dir(env), key=personal_key(env), base_url=env.get("GARMIN_PERSONAL_API_BASE_URL") or None, email=env.get("GARMIN_EMAIL") or None, password=env.get("GARMIN_PASSWORD") or None, cn=is_cn(env))
     else:
         login = LoginManager(client, token_dir(env), email=env.get("GARMIN_EMAIL") or None, password=env.get("GARMIN_PASSWORD") or None, cn=is_cn(env))
     rt = Runtime(db, client, engine, mirror, snapshot, login, sync_enabled, db_path, exporter, wellness_exporter)
@@ -178,7 +180,15 @@ def open_runtime(env: dict[str, str] | None = None, *, start: bool = True) -> Ru
 
 def health_body(rt: Runtime) -> dict[str, Any]:
     strava = rt.engine.strava_sync
+    if isinstance(rt.login, HybridLogin):
+        # Built on every request: which side is failing changes while the server runs (states only; /health is open).
+        sides = getattr(rt.client.transport, "side_status", None)
+        garmin = {k: v["state"] for k, v in sides().items()} if sides else {"connect": "pending", "personal": "pending"}
+        if rt.client.state.auth_error:
+            garmin = {"connect": "failed", "personal": "failed"}
+        return {"status": "ok", "name": SERVER_NAME, "version": VERSION, "sync": "on" if rt.sync_enabled else "off", "transport": "hybrid", "garmin": garmin, "strava_sync": ",".join(strava.config.parts) if strava else "off"}
     return {"status": "ok", "name": SERVER_NAME, "version": VERSION, "sync": "on" if rt.sync_enabled else "off", "transport": "personal" if rt.client.partial else "connect", "strava_sync": ",".join(strava.config.parts) if strava else "off"}
+
 
 
 def serve(args: argparse.Namespace) -> int:
@@ -211,7 +221,7 @@ def serve(args: argparse.Namespace) -> int:
             app = build_app(
                 server,
                 snapshot=rt.snapshot,
-                health=health_body(rt),
+                health=(lambda: health_body(rt)) if isinstance(rt.login, HybridLogin) else health_body(rt),
                 allowed_hosts=allowed,
                 mcp_token=mcp_token,
                 snapshot_token=env.get("SNAPSHOT_TOKEN") or "",

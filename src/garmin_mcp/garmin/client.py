@@ -62,6 +62,11 @@ class Unsupported(GarminError):
     """The active transport cannot serve this request (the Personal API transport is read-only and partial)."""
 
 
+class ConnectUnavailable(Unsupported):
+    """GARMIN_TRANSPORT=hybrid: Garmin Connect's login failed, so a request only Connect serves is refused while the
+    Personal API side keeps syncing. Unlike AuthError it does not stop the client."""
+
+
 class Unavailable(GarminError):
     """5xx or network error after retries."""
 

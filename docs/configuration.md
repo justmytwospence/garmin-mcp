@@ -25,8 +25,8 @@ Everything is an environment variable. In Docker, set them in `.env`: `compose.y
 | `EXPORT_CORS_ORIGINS` | unset | Comma-separated origins (for example `https://effortcurve.com`) a browser app may read the export from; CORS headers go on `/export/canonical/v1/` only |
 | `EXPORT_OIDC_ISSUER` | unset | An `https://` OIDC issuer (Authelia, Authentik, Keycloak ...): browser apps sign in there and the export accepts its JWTs issued to `EXPORT_OIDC_CLIENT_ID`. Unset: the server runs its own one-page sign-in (approve with `EXPORT_TOKEN`) |
 | `EXPORT_OIDC_CLIENT_ID` | `effortcurve,wellness-lab` | The OIDC client ids the browser apps use (comma-separated); the export accepts tokens issued to any of them |
-| `GARMIN_TRANSPORT` | `connect` | `personal` uses Garmin's official Personal API instead of the email/password login; see [authentication](authentication.md#personal-api-key) |
-| `GARMIN_PERSONAL_API_KEY`, `GARMIN_PERSONAL_API_KEY_FILE` | unset | The Personal API key (or a file holding it); required with `GARMIN_TRANSPORT=personal` |
+| `GARMIN_TRANSPORT` | `connect` | `personal` uses Garmin's official Personal API instead of the email/password login; `hybrid` uses the Personal API for what it serves and the login for everything else, and still needs the login; see [authentication](authentication.md#personal-api-key) |
+| `GARMIN_PERSONAL_API_KEY`, `GARMIN_PERSONAL_API_KEY_FILE` | unset | The Personal API key (or a file holding it); required with `GARMIN_TRANSPORT=personal` or `hybrid` |
 | `GARMIN_PERSONAL_API_BASE_URL` | `https://personal.connectapi.garmin.com` | Override for tests |
 | `GARMIN_SNAPSHOT_ACTIVITY_DELAY_MINUTES` | `15` | How soon a new or re-downloaded activity is published (several downloads in a row share one copy) |
 | `GARMIN_SNAPSHOT_WELLNESS_DELAY_MINUTES` | `30` | How soon after last night's sleep or HRV day lands the snapshot is published (at most one such publish a day) |

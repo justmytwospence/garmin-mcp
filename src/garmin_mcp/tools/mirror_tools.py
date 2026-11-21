@@ -183,6 +183,9 @@ def sync_status(m: Mirror, drift_cache: DriftCache) -> dict[str, Any]:
 
 def login_state(m: Mirror) -> dict[str, Any]:
     s = m.client.state
+    # GARMIN_TRANSPORT=hybrid: each side's state, so a failing one is named.
+    side_status = getattr(m.client.transport, "side_status", None)
+    sides = {"sides": side_status()} if callable(side_status) else {}
     if s.auth_error:
         return {
             "state": "failed",
@@ -191,11 +194,16 @@ def login_state(m: Mirror) -> dict[str, Any]:
             "since": s.auth_error_at.isoformat() if s.auth_error_at else None,
             "fix": s.auth_error_fix or auth_fix(),
             "effect": "Background sync is stopped and nothing is fetched on demand; tools keep answering from the mirror, marked stale.",
+            **sides,
         }
     try:
         dn = m.client.transport.display_name
     except Exception:  # noqa: BLE001
         dn = None
     if dn:
-        return {"state": "ready", "display_name": dn}
+        failing = [k for k, v in sides.get("sides", {}).items() if v["state"] != "ready"]
+        if failing:
+            effect = "Requests only Garmin Connect serves are refused and their datasets are not synced; the Personal API's datasets keep syncing." if "connect" in failing else "The Personal API's requests go to Garmin Connect instead; sync continues."
+            return {"state": "degraded", "display_name": dn, "failing": failing, **sides, "effect": effect}
+        return {"state": "ready", "display_name": dn, **sides}
     return {"state": "pending", "display_name": None, "note": "The login thread has not finished yet (it runs once at startup); check again in a few seconds."}

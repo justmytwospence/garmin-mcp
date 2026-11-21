@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,10 @@ DEFAULT_BASE = "https://personal.connectapi.garmin.com"
 TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token"
 SUPPORTED_DATASETS = frozenset({"activity", "daily_summary_v2", "steps_daily", "hrv", "hrv_summary", "body_battery", "weigh_ins", "userprofile_settings"})
 SUPPORTED_PATHS = frozenset({ACTIVITY_LIST_PATH, ACTIVITY_FIT_PATH, *(BY_NAME[n].path for n in SUPPORTED_DATASETS)})
+# The resolved paths SUPPORTED_PATHS stand for. A placeholder ({key}, {start}, {end}) is an id or an ISO date, so it
+# matches one path segment starting with a digit; that keeps Connect-only siblings such as
+# /activity-service/activity/activityTypes off the Personal API.
+SUPPORTED_RE = re.compile("|".join("(?:" + "[0-9][^/]*".join(re.escape(part) for part in re.split(r"\{\w+\}", t)) + ")" for t in sorted(SUPPORTED_PATHS)))
 REFRESH_WINDOW_S = 3600
 FIX = "Create a new key at https://connect.garmin.com/app/settings/personalApiToken, set GARMIN_PERSONAL_API_KEY, and restart."
 
@@ -32,6 +37,11 @@ def _exp(jwt: str) -> float:
         return float(claims["exp"])
     except (IndexError, KeyError, ValueError, TypeError) as err:
         raise AuthError("Garmin's token response had no expiry") from err
+
+
+def serves(path: str) -> bool:
+    """Whether a resolved request path (query string allowed) is one of SUPPORTED_PATHS."""
+    return SUPPORTED_RE.fullmatch(path.split("?", 1)[0]) is not None
 
 
 class PersonalToken:

@@ -20,7 +20,7 @@ from typing import Any
 
 from .db.database import Database
 from .db.raw import current, land, read_current
-from .garmin.client import AuthError, GarminClient, GarminError, NotFound, RateLimited, Unavailable
+from .garmin.client import AuthError, ConnectUnavailable, GarminClient, GarminError, NotFound, RateLimited, Unavailable
 from .garmin.datasets import REPORT_TTL, dataset, days_between
 from .sync.engine import SyncEngine
 
@@ -103,7 +103,7 @@ class GarminNotFound(Exception):
 
 
 def can_serve_stale(err: Exception) -> bool:
-    return isinstance(err, (RateLimited, Unavailable, AuthError))
+    return isinstance(err, (RateLimited, Unavailable, AuthError, ConnectUnavailable))
 
 
 class Mirror:

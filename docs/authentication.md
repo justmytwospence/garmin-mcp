@@ -91,6 +91,12 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://garmin.example.com/mcp 
 
 It is read-only and partial. It syncs the activity list, activity details, original FIT files, daily summaries, steps, HRV, Body Battery, weigh-ins and the profile settings. Everything else (splits, weather, stress, sleep, wellness FIT files, devices, courses, workouts) is skipped, and tools that write return an error. The profile table stays empty, so the time zone is UTC.
 
+### Hybrid
+
+`GARMIN_TRANSPORT=hybrid` uses both: reads the Personal API serves (the list above) go to it, and every other read, every write and every tool that changes something go to Garmin Connect. It needs the key (`GARMIN_PERSONAL_API_KEY` or `GARMIN_PERSONAL_API_KEY_FILE`) and the usual Connect login (`garmin-mcp-auth`, or `GARMIN_EMAIL`/`GARMIN_PASSWORD`); with both working, the mirror is as complete as with `connect`.
+
+Each side fails on its own. When the Connect login is missing, expires or is revoked, the Personal API's datasets keep syncing and the exports keep being written; only what Connect serves stops, as under `personal`, until `garmin-mcp-auth` and a restart. When the Personal API fails on a request (a rejected key, a 401, a 5xx, a network error), that request goes to Connect instead, and a rejected key sends everything to Connect until a restart. Only with both sides down does sync stop, as in the other modes. `garmin_sync_status` shows each side under `login.sides` (`state` is `degraded` while one is failing, with its kind and fix), and `/health` shows `"transport": "hybrid"` with each side's state under `garmin`.
+
 ## Which one
 
 | | Bearer token | OAuth profile |

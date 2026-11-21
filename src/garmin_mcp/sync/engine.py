@@ -32,13 +32,16 @@ from zoneinfo import ZoneInfo
 
 from ..db.database import Database
 from ..fit.decode import PARSER_VERSION
-from ..garmin.client import AuthError, GarminClient, Priority, RateLimited, Unsupported
+from ..garmin.client import AuthError, ConnectUnavailable, GarminClient, Priority, RateLimited, Unsupported
 from ..garmin.datasets import (
     ACTIVITY_DATASETS,
     ACTIVITY_FIT_PATH,
+    ACTIVITY_LIST_PATH,
+    BY_NAME,
     DAY_DATASETS,
     INTRADAY_DATASETS,
     RANGE_DATASETS,
+    RELOAD_PATH,
     SNAPSHOT_DATASETS,
     WELLNESS_FIT_PATH,
     dataset,
@@ -556,6 +559,8 @@ class SyncEngine:
         except Unsupported as err:
             self.db.run("DELETE FROM sync_job WHERE kind = ? AND key = ?", [kind, key])
             self.log(kind, key, "unsupported", str(err)[:500])
+            if isinstance(err, ConnectUnavailable):
+                self.drop_unsupported()
         except Exception as err:  # noqa: BLE001
             attempts = int(job["attempts"]) + 1
             backoff_min = min(2**attempts, 24 * 60)
@@ -568,6 +573,19 @@ class SyncEngine:
         finally:
             self.current = None
         return "worked"
+
+    def drop_unsupported(self) -> int:
+        """GARMIN_TRANSPORT=hybrid once Garmin Connect fails: drop the queued jobs only Connect serves, so they are not
+        refused one paced request at a time ahead of the Personal API's work. The planner queues them again when
+        Connect is back (after the re-login and restart)."""
+        kinds = [r["kind"] for r in self.db.all("SELECT DISTINCT kind FROM sync_job")]
+        drop = [k for k in kinds if (path := job_path(k)) is not None and not self.client.supports(path)]
+        if not drop:
+            return 0
+        n = int(self.db.scalar("SELECT count(*) FROM sync_job WHERE kind IN (SELECT unnest(?::VARCHAR[]))", [drop]))
+        self.db.run("DELETE FROM sync_job WHERE kind IN (SELECT unnest(?::VARCHAR[]))", [drop])
+        log.warning("sync: dropped %d queued jobs that need Garmin Connect (%s)", n, ", ".join(sorted(drop)))
+        return n
 
     # ------------------------------------------------------------- worker
 
@@ -678,3 +696,20 @@ class SyncEngine:
 
 class _Deferred(Exception):
     pass
+
+
+def job_path(kind: str) -> str | None:
+    """The path template a job kind requests, for supports(); None for jobs that mix paths or make no request."""
+    prefix, _, name = kind.partition(":")
+    if prefix in ("snap", "day", "range", "act"):
+        ds = BY_NAME.get(name)
+        return ds.path if ds else None
+    return {
+        "poll": dataset("device_last_used").path,
+        "list_recent": ACTIVITY_LIST_PATH,
+        "list_full": ACTIVITY_LIST_PATH,
+        "activity_fit": ACTIVITY_FIT_PATH,
+        "wellness_fit": WELLNESS_FIT_PATH,
+        "reload": RELOAD_PATH,
+        "refetch_day": WELLNESS_FIT_PATH,
+    }.get(kind)
