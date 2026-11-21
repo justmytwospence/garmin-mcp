@@ -17,6 +17,7 @@ from test_engine import make_engine
 from fake import FakeTransport
 
 NOW = 1_800_000_000.0
+HRV = "/hrv-service/hrv/2026-01-02"
 
 
 def jwt(exp: float) -> str:
@@ -85,21 +86,34 @@ def test_401_refreshes_once_and_retries(token):
     t, s = token
     tr = PersonalApiTransport(t, session=s)
     s.data_statuses = [401, 200]
-    assert tr.request("GET", "/x").status == 200
+    assert tr.request("GET", HRV).status == 200
     assert len(s.posts) == 2
     s.data_statuses = [401, 401]
-    assert tr.request("GET", "/x").status == 401
+    assert tr.request("GET", HRV).status == 401
 
 
 def test_binary_accept_and_read_only(token):
     t, s = token
     tr = PersonalApiTransport(t, session=s)
-    tr.request("GET", "/f", binary=True)
+    tr.request("GET", "/download-service/files/activity/21000000001", binary=True)
     assert "application/zip" in s.gets[-1][2]["Accept"]
     with pytest.raises(Unsupported):
         tr.request("POST", "/x")
     with pytest.raises(Unsupported):
         tr.call("add_hydration_data")
+
+
+def test_unsupported_get_is_refused_without_a_request(token):
+    t, s = token
+    client = GarminClient(PersonalApiTransport(t, session=s), background_gap=0, interactive_gap=0, jitter=0, sleep=lambda s: None)
+    s.data_statuses = [403]
+    with pytest.raises(Unsupported):
+        client.get_text("/wellness-service/wellness/dailyStress/2026-01-02")
+    with pytest.raises(Unsupported):
+        client.get_text("/activity-service/activity/activityTypes")
+    assert s.gets == [] and s.data_statuses == [403] and client.state.auth_error is None
+    s.data_statuses = []
+    assert client.get_text(HRV + "?x=1") == "[]"
 
 
 def test_login_with_rejected_key_sets_problem(tmp_path, monkeypatch):

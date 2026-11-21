@@ -97,6 +97,9 @@ class PersonalApiTransport:
     def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, binary: bool = False, headers: dict[str, str] | None = None, files: Any = None) -> Response:
         if method.upper() != "GET":
             raise Unsupported(f"{method} {path} is not available with the Personal API transport")
+        if not serves(path):
+            # Never ask the Personal API for a path it does not serve: an auth-like answer there would stop all sync.
+            raise Unsupported(f"GET {path} is not available with the Personal API transport")
         accept = "application/zip, application/x-zip-compressed, application/octet-stream" if binary else "application/json"
         for attempt in (0, 1):
             h = {**(headers or {}), "Authorization": f"Bearer {self.token.get(force=attempt == 1)}", "Accept": accept}
