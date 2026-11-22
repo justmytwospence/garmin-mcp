@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-11-21
+
 ### Changed
 
 - A Nordic ski's technique comes from a title the athlete wrote when it names exactly one (`skate` or `skating`, or `classic`, as whole words), over the activity type; Garmin's own titles (`Boulder Cross Country Skate Skiing`) never override the type.
@@ -241,6 +243,7 @@ The first release meant for other people: a self-hosted compose stack with docum
 Initial release: the DuckDB mirror (raw store, projections into typed tables, FIT decoding), the paced sync engine with its planner and archive reloads, cache-first tools under the upstream names plus `garmin_query`, `garmin_schema` and `garmin_sync_status`, the snapshot publisher with HTTP byte-range serving, the auth CLI, the account-export import, the Docker image and the CI and release workflows.
 
 [Unreleased]: https://github.com/justmytwospence/garmin-mcp/compare/v1.16.1...HEAD
+[1.18.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.16.1...v1.17.0
 [1.16.1]: https://github.com/justmytwospence/garmin-mcp/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/justmytwospence/garmin-mcp/compare/v1.15.0...v1.16.0
