@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- A Nordic ski's technique comes from a title the athlete wrote when it names exactly one (`skate` or `skating`, or `classic`, as whole words), over the activity type; Garmin's own titles (`Boulder Cross Country Skate Skiing`) never override the type.
+
 ## [1.17.0] - 2026-11-21
 
 ### Added
