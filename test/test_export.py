@@ -89,6 +89,7 @@ def test_export_writes_manifest_and_parquet(setup):
     [e] = m["activities"]
     assert e["id"] == f"garmin:{aid}" and e["sources"] == [{"kind": "garmin", "id": str(aid)}] and e["n"] == 30
     assert e["hr_sensor"] is False  # fitgen writes no device info
+    assert e["hr_monitor"] is None
     assert e["tags"] == []
     f = exp.out_dir / e["file"]
     assert e["sha256"] == hashlib.sha256(f.read_bytes()).hexdigest()
@@ -334,6 +335,22 @@ def test_rider_position_from_power_pedal_events(db, fixtures, tmp_path):
     assert list(e.keys()) == SCHEMA["entry_keys"]
     # standing from 100 s (the transition) to 200 s; the repeats (at 0, 103, 150, 203) are dropped
     assert e["rider_position"] == {"t": [100, 200], "standing": [1, 0]}
+
+
+def test_hr_monitor_from_device_info_and_paired_sensors(setup):
+    db, _, aid, pub, exp = setup
+    with db.transaction() as tx:
+        fit_file_id = tx.execute("SELECT fit_file_id FROM fit_record WHERE activity_id = ? LIMIT 1", [aid]).fetchone()[0]
+        tx.execute(
+            "INSERT INTO fit_device_info (activity_id, fit_file_id, idx, device_index, device_type, source_type, extra) "
+            "VALUES (?, ?, 900, '3', '1', 'bluetooth_low_energy', ?)",
+            [aid, fit_file_id, json.dumps({"ble_device_type": "heart_rate", "29": [10, 20, 30, 40, 50, 60]})],
+        )
+        tx.execute("INSERT INTO sensor (serial_number, sensor_type, device_name) VALUES (102030405060, 'HEART_RATE', 'Test Armband')")
+    exp.run(pub.publish())
+    [e] = manifest(exp)["activities"]
+    assert list(e.keys()) == SCHEMA["entry_keys"]
+    assert e["hr_monitor"] == {"key": "ble:36a366b0", "name": "Test Armband"}
 
 
 def test_no_rider_position_events_gives_null(setup):

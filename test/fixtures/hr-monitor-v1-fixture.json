@@ -1,0 +1,403 @@
+{
+ "version": 1,
+ "cases": [
+  {
+   "name": "hrm_pro_alias",
+   "rows": [
+    {
+     "device_index": "3",
+     "manufacturer": "garmin",
+     "product": 19,
+     "garmin_product": "19",
+     "source_type": "antplus",
+     "device_type": "120",
+     "antplus_device_type": "heart_rate",
+     "ble_device_type": null,
+     "ble_address": null
+    },
+    {
+     "device_index": "3",
+     "manufacturer": "garmin",
+     "product": 3300,
+     "garmin_product": "hrm_pro",
+     "source_type": "antplus",
+     "device_type": "120",
+     "antplus_device_type": "heart_rate",
+     "ble_device_type": null,
+     "ble_address": null
+    }
+   ],
+   "sensors": [],
+   "expected": {
+    "key": "ant:garmin:3300",
+    "name": null
+   },
+   "expected_browser": {
+    "key": "ant:garmin:3300",
+    "name": null
+   }
+  },
+  {
+   "name": "polar",
+   "rows": [
+    {
+     "device_index": "2",
+     "manufacturer": "polar_electro",
+     "product": 4,
+     "garmin_product": null,
+     "source_type": "antplus",
+     "device_type": "120",
+     "antplus_device_type": "heart_rate",
+     "ble_device_type": null,
+     "ble_address": null
+    }
+   ],
+   "sensors": [],
+   "expected": {
+    "key": "ant:polar_electro:4",
+    "name": null
+   },
+   "expected_browser": {
+    "key": "ant:polar_electro:4",
+    "name": null
+   }
+  },
+  {
+   "name": "ant_anonymous",
+   "rows": [
+    {
+     "device_index": "6",
+     "manufacturer": null,
+     "product": null,
+     "garmin_product": null,
+     "source_type": "antplus",
+     "device_type": "120",
+     "antplus_device_type": "heart_rate",
+     "ble_device_type": null,
+     "ble_address": null
+    }
+   ],
+   "sensors": [],
+   "expected": {
+    "key": "ant:unknown:unknown",
+    "name": null
+   },
+   "expected_browser": {
+    "key": "ant:unknown:unknown",
+    "name": null
+   }
+  },
+  {
+   "name": "ble_named",
+   "rows": [
+    {
+     "device_index": "3",
+     "manufacturer": null,
+     "product": null,
+     "garmin_product": null,
+     "source_type": "bluetooth_low_energy",
+     "device_type": "1",
+     "antplus_device_type": null,
+     "ble_device_type": "heart_rate",
+     "ble_address": [
+      10,
+      20,
+      30,
+      40,
+      50,
+      60
+     ]
+    }
+   ],
+   "sensors": [
+    {
+     "serial_number": "102030405060",
+     "sensor_type": "HEART_RATE",
+     "device_name": "Test Armband"
+    }
+   ],
+   "expected": {
+    "key": "ble:36a366b0",
+    "name": "Test Armband"
+   },
+   "expected_browser": {
+    "key": "ble:36a366b0",
+    "name": null
+   }
+  },
+  {
+   "name": "ble_off_by_two",
+   "rows": [
+    {
+     "device_index": "3",
+     "manufacturer": null,
+     "product": null,
+     "garmin_product": null,
+     "source_type": "bluetooth_low_energy",
+     "device_type": "1",
+     "antplus_device_type": null,
+     "ble_device_type": "heart_rate",
+     "ble_address": [
+      11,
+      22,
+      33,
+      44,
+      55,
+      66
+     ]
+    }
+   ],
+   "sensors": [
+    {
+     "serial_number": "112233445564",
+     "sensor_type": "HEART_RATE",
+     "device_name": "Test Strap 2"
+    }
+   ],
+   "expected": {
+    "key": "ble:d2f6055a",
+    "name": "Test Strap 2"
+   },
+   "expected_browser": {
+    "key": "ble:d2f6055a",
+    "name": null
+   }
+  },
+  {
+   "name": "ble_no_match",
+   "rows": [
+    {
+     "device_index": "3",
+     "manufacturer": null,
+     "product": null,
+     "garmin_product": null,
+     "source_type": "bluetooth_low_energy",
+     "device_type": "1",
+     "antplus_device_type": null,
+     "ble_device_type": "heart_rate",
+     "ble_address": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    }
+   ],
+   "sensors": [],
+   "expected": {
+    "key": "ble:2228e838",
+    "name": null
+   },
+   "expected_browser": {
+    "key": "ble:2228e838",
+    "name": null
+   }
+  },
+  {
+   "name": "ble_wrong_type",
+   "rows": [
+    {
+     "device_index": "3",
+     "manufacturer": null,
+     "product": null,
+     "garmin_product": null,
+     "source_type": "bluetooth_low_energy",
+     "device_type": "1",
+     "antplus_device_type": null,
+     "ble_device_type": "heart_rate",
+     "ble_address": [
+      10,
+      20,
+      30,
+      40,
+      50,
+      60
+     ]
+    }
+   ],
+   "sensors": [
+    {
+     "serial_number": "102030405060",
+     "sensor_type": "BIKE_POWER",
+     "device_name": "Test Power"
+    }
+   ],
+   "expected": {
+    "key": "ble:36a366b0",
+    "name": null
+   },
+   "expected_browser": {
+    "key": "ble:36a366b0",
+    "name": null
+   }
+  },
+  {
+   "name": "ble_no_address",
+   "rows": [
+    {
+     "device_index": "3",
+     "manufacturer": null,
+     "product": null,
+     "garmin_product": null,
+     "source_type": "bluetooth_low_energy",
+     "device_type": "1",
+     "antplus_device_type": null,
+     "ble_device_type": "heart_rate",
+     "ble_address": null
+    }
+   ],
+   "sensors": [],
+   "expected": {
+    "key": "ble:unknown",
+    "name": null
+   },
+   "expected_browser": {
+    "key": "ble:unknown",
+    "name": null
+   }
+  },
+  {
+   "name": "most_rows_wins",
+   "rows": [
+    {
+     "device_index": "3",
+     "manufacturer": "garmin",
+     "product": 3300,
+     "garmin_product": "hrm_pro",
+     "source_type": "antplus",
+     "device_type": "120",
+     "antplus_device_type": "heart_rate",
+     "ble_device_type": null,
+     "ble_address": null
+    },
+    {
+     "device_index": "3",
+     "manufacturer": "garmin",
+     "product": 3300,
+     "garmin_product": "hrm_pro",
+     "source_type": "antplus",
+     "device_type": "120",
+     "antplus_device_type": "heart_rate",
+     "ble_device_type": null,
+     "ble_address": null
+    },
+    {
+     "device_index": "4",
+     "manufacturer": null,
+     "product": null,
+     "garmin_product": null,
+     "source_type": "bluetooth_low_energy",
+     "device_type": "1",
+     "antplus_device_type": null,
+     "ble_device_type": "heart_rate",
+     "ble_address": [
+      10,
+      20,
+      30,
+      40,
+      50,
+      60
+     ]
+    }
+   ],
+   "sensors": [],
+   "expected": {
+    "key": "ant:garmin:3300",
+    "name": null
+   },
+   "expected_browser": {
+    "key": "ant:garmin:3300",
+    "name": null
+   }
+  },
+  {
+   "name": "tie_ant_first",
+   "rows": [
+    {
+     "device_index": "2",
+     "manufacturer": null,
+     "product": null,
+     "garmin_product": null,
+     "source_type": "bluetooth_low_energy",
+     "device_type": "1",
+     "antplus_device_type": null,
+     "ble_device_type": "heart_rate",
+     "ble_address": [
+      10,
+      20,
+      30,
+      40,
+      50,
+      60
+     ]
+    },
+    {
+     "device_index": "5",
+     "manufacturer": "polar_electro",
+     "product": 4,
+     "garmin_product": null,
+     "source_type": "antplus",
+     "device_type": "120",
+     "antplus_device_type": "heart_rate",
+     "ble_device_type": null,
+     "ble_address": null
+    }
+   ],
+   "sensors": [],
+   "expected": {
+    "key": "ant:polar_electro:4",
+    "name": null
+   },
+   "expected_browser": {
+    "key": "ant:polar_electro:4",
+    "name": null
+   }
+  },
+  {
+   "name": "no_hr_device",
+   "rows": [
+    {
+     "device_index": "1",
+     "manufacturer": "garmin",
+     "product": 3578,
+     "garmin_product": null,
+     "source_type": "antplus",
+     "device_type": "11",
+     "antplus_device_type": "bike_power",
+     "ble_device_type": null,
+     "ble_address": null
+    }
+   ],
+   "sensors": [],
+   "expected": null,
+   "expected_browser": null
+  },
+  {
+   "name": "broadcast_watch",
+   "rows": [
+    {
+     "device_index": "0",
+     "manufacturer": "garmin",
+     "product": 255,
+     "garmin_product": "o_hr",
+     "source_type": "antplus",
+     "device_type": "120",
+     "antplus_device_type": "heart_rate",
+     "ble_device_type": null,
+     "ble_address": null
+    }
+   ],
+   "sensors": [],
+   "expected": {
+    "key": "ant:garmin:255",
+    "name": null
+   },
+   "expected_browser": {
+    "key": "ant:garmin:255",
+    "name": null
+   }
+  }
+ ]
+}

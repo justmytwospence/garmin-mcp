@@ -36,9 +36,19 @@ import duckdb
 from starlette.requests import Request
 from starlette.responses import FileResponse, Response
 
+from .hr_monitor import hr_monitor
 from .weather import WeatherCache, fill_weather
 
 log = logging.getLogger("garmin_mcp.export")
+
+
+def _json_object(text: str | None) -> dict[str, Any]:
+    try:
+        doc = json.loads(text) if text else None
+    except ValueError:
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
 
 SPORTS: dict[str, str] = {
     "running": "run",
@@ -271,6 +281,20 @@ class CanonicalExporter:
                 ORDER BY activity_id, ts, idx
                 """
             ).fetchall()
+            device_rows = con.execute(
+                """
+                SELECT activity_id, device_index, manufacturer, product, garmin_product, source_type, device_type,
+                       antplus_device_type, CAST(extra AS VARCHAR) AS extra
+                FROM g.fit_device_info WHERE activity_id IS NOT NULL
+                ORDER BY fit_file_id, idx
+                """
+            ).fetchall()
+            try:
+                sensor_rows = con.execute(
+                    "SELECT CAST(serial_number AS VARCHAR) AS serial_number, sensor_type, device_name FROM g.sensor"
+                ).fetchall()
+            except duckdb.CatalogException:
+                sensor_rows = []
             previous: dict[str, dict[str, Any]] = {}
             if self.manifest_path.exists():
                 previous = {e["id"]: e for e in json.loads(self.manifest_path.read_text()).get("activities", [])}
@@ -345,6 +369,30 @@ class CanonicalExporter:
                 rider[aid] = kept
             else:
                 del rider[aid]
+        sensors = [{"serial_number": a, "sensor_type": b, "device_name": c} for a, b, c in sensor_rows]
+        device_by_activity: dict[int, list[dict[str, Any]]] = {}
+        for aid, index, mfr, product, gproduct, source, dtype, antplus, extra in device_rows:
+            extra_doc = _json_object(extra)
+            address = extra_doc.get("29")
+            if not (isinstance(address, list) and len(address) == 6 and all(isinstance(b, int) and not isinstance(b, bool) for b in address)):
+                address = None
+            ble_type = extra_doc.get("ble_device_type")
+            device_by_activity.setdefault(int(aid), []).append({
+                "device_index": index,
+                "manufacturer": mfr,
+                "product": product,
+                "garmin_product": gproduct,
+                "source_type": source,
+                "device_type": dtype,
+                "antplus_device_type": antplus,
+                "ble_device_type": ble_type if isinstance(ble_type, str) else None,
+                "ble_address": address,
+            })
+        monitors: dict[int, dict[str, Any]] = {}
+        for aid, device_rows_of in device_by_activity.items():
+            found = hr_monitor(device_rows_of, sensors)
+            if found is not None:
+                monitors[aid] = found
         efforts: dict[int, list[dict[str, Any]]] = {}
         seg_laps: dict[str, list[tuple[Any, ...]]] = {}
         seg_first: dict[str, int] = {}  # the activity of a segment's first effort (acts are sorted by start)
@@ -405,6 +453,7 @@ class CanonicalExporter:
                 "manual": bool(manual),
                 "cadence_unit": cadence_unit(sport),
                 "hr_sensor": bool(hr_sensor),
+                "hr_monitor": monitors.get(aid),
                 "tags": ["race"] if event_type == "race" else [],
                 "weather": weathers.get(aid),
                 "segment_efforts": efforts.get(aid, []),

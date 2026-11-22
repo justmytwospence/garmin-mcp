@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `hr_monitor`, the heart-rate monitor's model (Bluetooth monitors named from Garmin Connect's paired sensors).
+
 ## [1.18.0] - 2026-11-21
 
 ### Changed
